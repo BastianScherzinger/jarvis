@@ -134,6 +134,17 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "web_screenshot",
+        "description": "Macht einen Screenshot der aktuell geöffneten Webseite und speichert ihn. Gibt den Pfad zurück.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "Dateiname ohne Pfad (z.B. 'ergebnis.png'). Optional, default: screenshot.png"},
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "delegate_to_agent",
         "description": (
             "Delegiert eine Spezialaufgabe an einen Experten im Team. "
@@ -185,6 +196,8 @@ def execute_tool(name: str, inputs: dict) -> str:
             return _web_click(inputs["selector"])
         case "web_type":
             return _web_type(inputs["selector"], inputs["text"], inputs.get("submit", False))
+        case "web_screenshot":
+            return _web_screenshot(inputs.get("filename", "screenshot.png"))
         case "search_web":
             return _search_web(inputs["query"], inputs.get("results", 5))
         case "delegate_to_agent":
@@ -308,8 +321,10 @@ def _get_page():
         if _pw is not None:
             try: _pw.stop()
             except: pass
+        import os
+        headless = os.environ.get("JARVIS_BROWSER_HEADLESS", "false").lower() != "false"
         _pw      = sync_playwright().start()
-        _browser = _pw.chromium.launch(headless=True)
+        _browser = _pw.chromium.launch(headless=headless)
         _page    = _browser.new_page()
         _page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
 
@@ -375,6 +390,18 @@ def _web_type(selector: str, text: str, submit: bool = False) -> str:
         return f"Eingabe in '{selector}': '{text[:50]}'" + (" + Enter" if submit else "")
     except Exception as e:
         return f"Eingabe-Fehler: {e}"
+
+
+def _web_screenshot(filename: str = "screenshot.png") -> str:
+    try:
+        page = _get_page()
+        if not filename.endswith(".png"):
+            filename += ".png"
+        out = WORKSPACE / filename
+        page.screenshot(path=str(out), full_page=False)
+        return f"Screenshot gespeichert: {out}\nAktuelle URL: {page.url}"
+    except Exception as e:
+        return f"Screenshot-Fehler: {e}"
 
 
 def _search_web(query: str, max_results: int = 5) -> str:

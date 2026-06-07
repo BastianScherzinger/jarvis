@@ -70,20 +70,15 @@ def _edge_tts(text: str) -> tuple[bytes, str]:
     for attempt in range(2):
         try:
             with _edge_lock:
-                # Explizit neuen Event-Loop erstellen — thread-safe in Flask threaded mode
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    data = loop.run_until_complete(_stream())
-                finally:
-                    loop.close()
+                # asyncio.run() erstellt sauberen Loop und räumt danach auf — kein Warning
+                data = asyncio.run(_stream())
             if data:
                 return data, "audio/mpeg"
             raise RuntimeError("Kein Audio erhalten")
         except Exception as e:
             last_err = e
             if attempt == 0:
-                time.sleep(0.3)   # kurz warten, dann nochmal
+                time.sleep(0.3)
 
     raise RuntimeError(f"edge-tts: {last_err}")
 

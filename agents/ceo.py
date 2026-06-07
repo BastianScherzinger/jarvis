@@ -2,16 +2,35 @@
 JARVIS — CEO Agent. Einziger Ansprechpartner fuer den User.
 Koordiniert das Team via Anthropic tool-use und hat Zugriff auf den PC.
 """
+import base64 as _b64
+import datetime
 import json
 import re
 import time
-import uuid
+from pathlib import Path
 import anthropic
 from config import get_api_key
 from agents.tools import TOOL_DEFINITIONS, execute_tool
 from agents.team import TEAM
 import jarvis_log as log
 import tts as _tts
+
+_BRAIN_DIR = Path(__file__).parent.parent / "obsidian_brain"
+
+
+def _brain_entry(topic: str, lines: list[str]) -> None:
+    """Schreibt einen Eintrag in obsidian_brain/ — lässt das Wissen wachsen."""
+    try:
+        _BRAIN_DIR.mkdir(exist_ok=True)
+        safe = re.sub(r'[^\w\säöüÄÖÜß-]', '', topic)[:45].strip()
+        safe = re.sub(r'\s+', '_', safe) or "session"
+        fname = _BRAIN_DIR / f"{safe}.md"
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        block = f"\n## {ts}\n" + "\n".join(f"- {l}" for l in lines if str(l).strip()) + "\n"
+        with open(fname, 'a', encoding='utf-8') as f:
+            f.write(block)
+    except Exception:
+        pass  # Brain-Schreiben darf nie den Haupt-Flow unterbrechen
 
 
 def _strip_emojis(text: str) -> str:
@@ -54,48 +73,39 @@ def _extract_spoken(text: str, max_chars: int = 200) -> str:
     return result.strip() or text[:max_chars]
 
 
-_usage: dict = {"input": 0, "output": 0, "requests": 0}
+_usage: dict = {"input": 0, "output": 0, "requests": 0, "last_ctx": 0}
 
 def get_usage() -> dict:
     return dict(_usage)
 
 
-CEO_MODEL  = "claude-sonnet-4-6"
-CEO_SYSTEM = """\
-Du bist JARVIS, CEO eines Python Expert Agent Teams. Du sprichst direkt mit dem User.
+CEO_MODEL = "claude-sonnet-4-6"
 
-## Team (via delegate_to_agent):
-- library       → LibraryScout   : Library-Auswahl, PyPI
-- research      → ResearchBot    : Docs, Best Practices
-- senior_dev    → SeniorPy       : Python-Code, Architektur
-- ux            → UXCrafter      : API/CLI-Design
-- code_reviewer → ReviewMaster   : Code-Reviews
-- debugger      → DebugHunter    : Debugging, Tracebacks
-- bug_fixer     → BugSlayer      : Bug-Fixes mit Tests
-- bug_expert    → BugWizard      : Bug-Pattern-Analyse
-- performance   → SpeedDemon     : Profiling, Optimierung
-- security      → SecureGuard    : Security-Analyse
-
-## PC-Tools:
-read_file, write_file, run_command, list_directory, search_files
-
-## Browser-Tools:
-browse_web, web_click, web_type, search_web
-
-## Regeln:
-1. Einfache Frage → direkt antworten, kein Tool
-2. Code analysieren → Datei lesen, delegieren
-3. Code schreiben → senior_dev, Datei schreiben
-4. Mehrere Aspekte → mehrere Agenten
-5. Datei erwaehnt → zuerst lesen
-
-## Antwort-Stil — WICHTIG:
-- SO KURZ WIE MOEGLICH. Einfache Fragen: 1-2 Saetze. Fertig.
-- Keine Floskeln: kein "Natuerlich!", "Gerne!", "Selbstverstaendlich".
-- Nur bei echter Komplexitaet (Code, tiefe Analyse) ausfuehrlicher.
-- Sprache: Deutsch oder Englisch — passe dich dem User an.
-- Code → Code-Bloecke. Kurze Antworten → kein Markdown.
+_SYSTEM_FALLBACK = """\
+Du bist JARVIS — Just A Rather Very Intelligent System.
+Sprich den User als "Sir" an. Antworte kurz und präzise. Handle direkt.
 """
+
+
+def _load_system_prompt() -> str:
+    """Lädt CLAUDE.md als System-Prompt — kennt seine Identität und Tools."""
+    claude_md = Path(__file__).parent.parent / "CLAUDE.md"
+    if claude_md.exists():
+        try:
+            content = claude_md.read_text(encoding="utf-8").strip()
+            return (
+                content
+                + "\n\n## Antwort-Stil\n"
+                "- SO KURZ WIE MÖGLICH. Einfache Fragen: 1-2 Sätze.\n"
+                "- Keine Floskeln (kein 'Natürlich!', 'Gerne!').\n"
+                "- Kurze Antworten → kein Markdown. Code → Code-Blöcke.\n"
+            )
+        except Exception:
+            pass
+    return _SYSTEM_FALLBACK
+
+
+CEO_SYSTEM = _load_system_prompt()
 
 
 def _sse(data: dict) -> str:
@@ -120,60 +130,98 @@ class JarvisCEO:
         token_count      = 0
         accumulated_resp = ""
 
+        _rate_retries = 0
+
         while True:
-            round_text    = ""
-            tool_calls    = []
-            current_tool: dict | None = None
-            has_tool_use  = False
+            round_text = ""
 
-            # ── Echter Anthropic-Stream — erster Token in ~0.3s ──────────
-            with self._client.messages.stream(
-                model=CEO_MODEL,
-                max_tokens=4096,
-                system=CEO_SYSTEM,
-                tools=TOOL_DEFINITIONS,
-                messages=messages,
-            ) as s:
-                for event in s:
-                    etype = event.type
+            # ── Echter Anthropic-Stream ───────────────────────────────────
+            try:
+                with self._client.messages.stream(
+                    model=CEO_MODEL,
+                    max_tokens=4096,
+                    system=CEO_SYSTEM,
+                    tools=TOOL_DEFINITIONS,
+                    messages=messages,
+                ) as s:
+                    for event in s:
+                        if event.type == "content_block_delta":
+                            delta = event.delta
+                            if delta.type == "text_delta":
+                                chunk        = delta.text
+                                round_text  += chunk
+                                token_count += 1
+                                yield _sse({"type": "token", "text": chunk})
 
-                    if etype == "content_block_start":
-                        blk = event.content_block
-                        if blk.type == "tool_use":
-                            has_tool_use = True
-                            current_tool = {"id": blk.id, "name": blk.name, "input_str": ""}
+                    final_msg = s.get_final_message()
+                    if hasattr(final_msg, "usage") and final_msg.usage:
+                        _in = final_msg.usage.input_tokens or 0
+                        _usage["input"]    += _in
+                        _usage["output"]   += final_msg.usage.output_tokens or 0
+                        _usage["requests"] += 1
+                        _usage["last_ctx"]  = _in  # aktueller Kontext-Snapshot
+                _rate_retries = 0
 
-                    elif etype == "content_block_delta":
-                        delta = event.delta
-                        if delta.type == "text_delta":
-                            chunk        = delta.text
-                            round_text  += chunk
-                            token_count += 1
-                            yield _sse({"type": "token", "text": chunk})
+            except anthropic.RateLimitError as e:
+                _rate_retries += 1
+                wait_s = 15 * _rate_retries
+                log.warn(f"Rate-Limit (429) — warte {wait_s}s (Versuch {_rate_retries}): {e}")
+                yield _sse({"type": "token",
+                            "text": f"\n\n*Rate-Limit — kurze Pause ({wait_s}s)...*"})
+                if _rate_retries <= 3:
+                    time.sleep(wait_s)
+                    continue
+                # Nach 3 Versuchen aufgeben
+                self.history.clear()
+                yield _sse({"type": "done", "usage": dict(_usage)})
+                break
 
-                        elif delta.type == "input_json_delta" and current_tool:
-                            current_tool["input_str"] += delta.partial_json
+            except anthropic.BadRequestError as e:
+                log.warn(f"BadRequest (400) — History reset: {e}")
+                self.history.clear()
+                yield _sse({"type": "token",
+                            "text": "\n\n*Konversation zurückgesetzt. Bitte erneut senden.*"})
+                yield _sse({"type": "done", "usage": dict(_usage)})
+                break
 
-                    elif etype == "content_block_stop":
-                        if current_tool:
-                            try:
-                                current_tool["input"] = json.loads(current_tool["input_str"] or "{}")
-                            except Exception:
-                                current_tool["input"] = {}
-                            tool_calls.append(current_tool)
-                            current_tool = None
+            except Exception as e:
+                log.warn(f"API-Fehler: {type(e).__name__}: {e}")
+                self.history.clear()
+                yield _sse({"type": "token",
+                            "text": f"\n\n*Fehler: {e}*"})
+                yield _sse({"type": "done", "usage": dict(_usage)})
+                break
 
-                final_msg = s.get_final_message()
-                if hasattr(final_msg, "usage") and final_msg.usage:
-                    _usage["input"]    += final_msg.usage.input_tokens or 0
-                    _usage["output"]   += final_msg.usage.output_tokens or 0
-                    _usage["requests"] += 1
+            # ── Tool-calls aus final_msg.content (autoritativ) ────────────
+            tool_calls = []
+            for block in (final_msg.content or []):
+                if getattr(block, "type", None) == "tool_use":
+                    tool_calls.append({
+                        "id":    block.id,
+                        "name":  block.name,
+                        "input": dict(block.input) if block.input else {},
+                    })
 
             # ── Tool-use Round ────────────────────────────────────────────
-            if has_tool_use:
+            if tool_calls:
                 messages.append({"role": "assistant", "content": final_msg.content})
+
                 if round_text.strip():
                     log.jarvis_thinking(round_text)
+                    spoken_inter = _extract_spoken(round_text) or round_text.strip()
+                    if spoken_inter and len(spoken_inter) > 3:
+                        try:
+                            audio_bytes, mime = _tts.speak(spoken_inter)
+                            log.tool_call("tts", f"→ {len(audio_bytes)//1024}KB (zwischendurch): {spoken_inter[:50]}")
+                            yield _sse({
+                                "type":      "spoken",
+                                "text":      spoken_inter,
+                                "audio_b64": _b64.b64encode(audio_bytes).decode("ascii"),
+                                "mime":      mime,
+                                "final":     False,
+                            })
+                        except Exception as e:
+                            log.warn(f"TTS intermediate: {e}")
 
                 tool_results = []
                 for tc in tool_calls:
@@ -221,8 +269,26 @@ class JarvisCEO:
                         agent_key = tool_input.get("agent", "")
                         agent_obj = TEAM.get(agent_key)
                         log.agent_done(agent_key, agent_obj.name if agent_obj else agent_key, elapsed_t)
+                        # Brain: Agent-Delegation protokollieren
+                        task_snippet = tool_input.get("task", "")[:80]
+                        _brain_entry(
+                            f"Agent {agent_key}",
+                            [f"Agent: {agent_obj.name if agent_obj else agent_key}",
+                             f"Aufgabe: {task_snippet}",
+                             f"Ergebnis: {str_result[:120]}"],
+                        )
                     else:
                         log.tool_done(tool_name, len(str_result), elapsed_t)
+                        # Brain: PC/Browser-Tool protokollieren
+                        detail = (tool_input.get("path") or tool_input.get("command") or
+                                  tool_input.get("url") or tool_input.get("query") or
+                                  tool_input.get("pattern") or "")
+                        _brain_entry(
+                            tool_name,
+                            [f"Tool: {tool_name}",
+                             f"Aktion: {str(detail)[:80]}",
+                             f"Ergebnis: {str_result[:120]}"],
+                        )
 
                     yield _sse({
                         "type":    "tool_result",
@@ -231,10 +297,13 @@ class JarvisCEO:
                         "result":  str_result[:2000],
                     })
 
+                    # In History kürzen: max 5000 Zeichen pro Ergebnis → verhindert Rate-Limit
+                    hist_content = (str_result if len(str_result) <= 5000
+                                    else str_result[:5000] + "\n... [gekürzt]")
                     tool_results.append({
                         "type":        "tool_result",
                         "tool_use_id": tool_id,
-                        "content":     str_result,
+                        "content":     hist_content,
                     })
 
                 accumulated_resp += round_text
@@ -245,15 +314,19 @@ class JarvisCEO:
                 accumulated_resp += round_text
                 self.history.append({"role": "assistant", "content": accumulated_resp})
                 log.response_done(elapsed=time.time() - stream_start, tokens=token_count)
-                # done ZUERST — Text sofort vollstaendig sichtbar
+
+                # Brain: Gesprächs-Eintrag — Wissen wächst mit jeder Antwort
+                _brain_entry(
+                    user_message[:40],
+                    [f"Frage: {user_message[:100]}",
+                     f"Antwort: {round_text[:160]}"],
+                )
+
                 yield _sse({"type": "done", "usage": dict(_usage)})
 
-                # TTS synchron erzeugen, base64 direkt im spoken-Event —
-                # Browser braucht keinen separaten /api/speak-Fetch
                 spoken = _extract_spoken(round_text) or round_text.strip()
                 if spoken and len(spoken) > 3:
                     try:
-                        import base64 as _b64
                         audio_bytes, mime = _tts.speak(spoken)
                         log.tool_call("tts", f"→ {len(audio_bytes)//1024}KB: {spoken[:50]}")
                         yield _sse({
@@ -261,6 +334,7 @@ class JarvisCEO:
                             "text":      spoken,
                             "audio_b64": _b64.b64encode(audio_bytes).decode("ascii"),
                             "mime":      mime,
+                            "final":     True,
                         })
                     except Exception as e:
                         log.warn(f"TTS fehlgeschlagen: {e}")

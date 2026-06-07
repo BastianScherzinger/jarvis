@@ -217,59 +217,85 @@ function clearActivityFeed() {
   state.agentKeys = {};
 }
 
-function addThinkingCard(text) {
+/* ─── Feed helpers ────────────────────────────────────────────── */
+function _feedAppend(card) {
   const feed = document.getElementById("activity-feed");
   document.getElementById("ap-empty").style.display = "none";
-  const card = document.createElement("div");
-  card.className = "thinking-card";
-  card.textContent = text.slice(0, 200) + (text.length > 200 ? "…" : "");
   feed.appendChild(card);
   feed.scrollTop = feed.scrollHeight;
 }
 
+function _sentenceForTool(tool, input) {
+  const p = input || {};
+  const fname = n => (n || "").split(/[/\\]/).pop();
+  switch (tool) {
+    case "read_file":        return `Liest Datei <span class="ac-file">${escHtml(fname(p.path))}</span>`;
+    case "write_file":       return `Schreibt <span class="ac-file">${escHtml(fname(p.path))}</span>`;
+    case "run_command":      return `Führt Befehl aus: <code>${escHtml((p.command||"").slice(0,70))}</code>`;
+    case "list_directory":   return `Listet Ordner <span class="ac-file">${escHtml(fname(p.path)||p.path||"")}</span> auf`;
+    case "search_files":     return `Sucht nach <span class="ac-file">${escHtml(p.pattern||"")}</span>`;
+    case "browse_web":       return `Öffnet Webseite: <span class="ac-file">${escHtml((p.url||"").slice(0,60))}</span>`;
+    case "web_click":        return `Klickt auf <code>${escHtml(p.selector||"")}</code>`;
+    case "web_type":         return `Tippt in Feld: <code>${escHtml((p.text||"").slice(0,50))}</code>`;
+    case "web_screenshot":   return `Erstellt Screenshot → <span class="ac-file">${escHtml(p.filename||"")}</span>`;
+    case "web_scroll":       return `Scrollt Seite <span class="ac-file">${escHtml(p.direction||"down")}</span>`;
+    case "web_get_links":    return `Sammelt alle Links der Seite`;
+    case "web_navigate":     return `Navigation: <code>${escHtml(p.action||"")}</code>`;
+    case "web_evaluate":     return `Führt JavaScript aus`;
+    case "web_extract_table":return `Extrahiert Tabelle von der Seite`;
+    case "download_file":    return `Lädt Datei herunter: <span class="ac-file">${escHtml((p.url||"").slice(0,50))}</span>`;
+    case "search_web":       return `Sucht im Web: <em>${escHtml((p.query||"").slice(0,60))}</em>`;
+    default:                 return `Tool <span class="ac-tool-name">${escHtml(tool)}</span> wird ausgeführt`;
+  }
+}
+
+function _resultSummary(tool, result) {
+  const r = (result || "").trim();
+  if (!r) return "";
+  const lines = r.split("\n").filter(l => l.trim());
+  if (tool === "read_file" || tool === "write_file") {
+    return lines.length > 1 ? `${lines.length} Zeilen` : r.slice(0, 80);
+  }
+  if (tool === "run_command") return lines[0].slice(0, 100);
+  if (tool === "list_directory") return `${lines.length} Einträge`;
+  return lines[0].slice(0, 90);
+}
+
+function addThinkingCard(text) {
+  const card = document.createElement("div");
+  card.className = "activity-card";
+  card.innerHTML = `<div class="ac-sentence" style="color:var(--text-2);font-style:italic">${escHtml(text.slice(0, 200))}${text.length > 200 ? "…" : ""}</div>`;
+  _feedAppend(card);
+}
+
 function addToolCard(data) {
-  const feed = document.getElementById("activity-feed");
-  document.getElementById("ap-empty").style.display = "none";
-
-  const meta    = TOOL_META[data.tool] || { icon: "🔧", label: data.tool };
-  const preview = formatInput(data.tool, data.input);
-
   const card = document.createElement("div");
   card.className = "activity-card";
   card.id = `card-${data.tool_id}`;
   card.innerHTML = `
-    <div class="ac-head">
-      <div class="ac-icon">${meta.icon}</div>
-      <span class="ac-label">${meta.label}</span>
-      <div class="ac-status"><div class="spinner"></div></div>
-    </div>
-    ${preview ? `<div class="ac-preview">${escHtml(preview)}</div>` : ""}
-  `;
-  feed.appendChild(card);
-  feed.scrollTop = feed.scrollHeight;
+    <div class="ac-sentence">
+      <span class="ac-tool-name">${(TOOL_META[data.tool]?.label || data.tool).toUpperCase()}</span>
+      &nbsp;—&nbsp;${_sentenceForTool(data.tool, data.input)}
+      <span class="ac-spinner" id="spin-${data.tool_id}"></span>
+    </div>`;
+  _feedAppend(card);
   state.toolCards[data.tool_id] = card;
 }
 
 function addAgentCard(data) {
-  const feed = document.getElementById("activity-feed");
-  document.getElementById("ap-empty").style.display = "none";
-
-  const agent = AGENT_META[data.agent_key] || { name: data.agent_key, icon: "🤖", color: "#888" };
-  const task  = (data.input?.task || "").slice(0, 120);
-
-  const card = document.createElement("div");
-  card.className = `activity-card agent-card ac-${data.agent_key}`;
+  const agent = AGENT_META[data.agent_key] || { name: data.agent_key, color: "#888" };
+  const task  = (data.input?.task || "").slice(0, 100);
+  const card  = document.createElement("div");
+  card.className = "activity-card";
   card.id = `card-${data.tool_id}`;
+  card.style.borderColor = agent.color + "55";
   card.innerHTML = `
-    <div class="ac-head">
-      <div class="ac-agent-av" style="background:${agent.color}">${agent.name[0]}</div>
-      <span class="ac-label">${agent.name}</span>
-      <div class="ac-status"><div class="spinner"></div></div>
+    <div class="ac-sentence">
+      <span class="ac-agent" style="color:${agent.color}">${escHtml(agent.name)}</span>
+      analysiert die Aufgabe<span class="ac-spinner" id="spin-${data.tool_id}"></span>
     </div>
-    ${task ? `<div class="ac-preview">${escHtml(task)}…</div>` : ""}
-  `;
-  feed.appendChild(card);
-  feed.scrollTop = feed.scrollHeight;
+    ${task ? `<div class="ac-result-line">${escHtml(task)}…</div>` : ""}`;
+  _feedAppend(card);
   state.toolCards[data.tool_id] = card;
   state.agentKeys[data.tool_id] = data.agent_key;
   if (typeof window.activateAgentOrb === 'function') window.activateAgentOrb(data.agent_key);
@@ -279,49 +305,48 @@ function finishToolCard(data) {
   const card = state.toolCards[data.tool_id];
   if (!card) return;
 
-  const statusEl = card.querySelector(".ac-status");
-  if (statusEl) statusEl.innerHTML = `<span style="color:var(--accent)">✓</span>`;
+  const spinner = card.querySelector(`#spin-${data.tool_id}`);
+  if (spinner) spinner.replaceWith(Object.assign(document.createElement("span"), {
+    className: "ac-status-ok", textContent: " ✓"
+  }));
 
-  const preview = (data.result || "").trim().split("\n")[0].slice(0, 100);
-  if (preview) {
-    let pre = card.querySelector(".ac-preview");
-    if (!pre) {
-      pre = document.createElement("div");
-      pre.className = "ac-preview";
-      card.appendChild(pre);
-    }
-    // append result below existing preview
-    pre.innerHTML += `<div style="margin-top:4px;color:var(--accent);opacity:.7">${escHtml(preview)}</div>`;
+  const summary = _resultSummary(data.tool, data.result);
+  if (summary) {
+    const line = document.createElement("div");
+    line.className = "ac-result-line";
+    line.textContent = summary;
+    card.appendChild(line);
   }
 
-  card.querySelector(".ac-head")?.style && (card.style.borderColor = "rgba(0,229,160,.2)");
+  card.style.borderColor = "rgba(0,229,160,.2)";
   const agentKey = state.agentKeys[data.tool_id];
   if (agentKey && typeof window.deactivateAgentOrb === 'function') window.deactivateAgentOrb(agentKey);
-  const feed = document.getElementById("activity-feed");
-  feed.scrollTop = feed.scrollHeight;
+  document.getElementById("activity-feed").scrollTop = 99999;
 }
 
 function errorToolCard(data) {
   const card = state.toolCards[data.tool_id];
   if (!card) return;
-  const statusEl = card.querySelector(".ac-status");
-  if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">✕</span>`;
+  const spinner = card.querySelector(`#spin-${data.tool_id}`);
+  if (spinner) spinner.replaceWith(Object.assign(document.createElement("span"), {
+    className: "ac-status-err", textContent: " ✕"
+  }));
+  const line = document.createElement("div");
+  line.className = "ac-result-line";
+  line.style.borderColor = "rgba(244,63,94,.4)";
+  line.style.color = "var(--danger)";
+  line.textContent = (data.error || "Fehler").slice(0, 100);
+  card.appendChild(line);
   card.style.borderColor = "rgba(244,63,94,.25)";
 }
 
 function addActivityCard(type, { label, preview }) {
-  const feed = document.getElementById("activity-feed");
-  document.getElementById("ap-empty").style.display = "none";
   const card = document.createElement("div");
   card.className = "activity-card";
   card.innerHTML = `
-    <div class="ac-head">
-      <div class="ac-icon">⚠️</div>
-      <span class="ac-label">${label}</span>
-    </div>
-    ${preview ? `<div class="ac-preview">${escHtml(preview)}</div>` : ""}
-  `;
-  feed.appendChild(card);
+    <div class="ac-sentence">${escHtml(label)}</div>
+    ${preview ? `<div class="ac-result-line">${escHtml(preview)}</div>` : ""}`;
+  _feedAppend(card);
 }
 
 /* ═══════════════════════ MESSAGES ═══════════════════════════════ */
@@ -496,9 +521,10 @@ function formatInput(tool, input) {
  *         → Stille 1.2s → Flask → Google Speech → Auto-Send.
  * ════════════════════════════════════════════════════════════════ */
 
-const VAD_THRESHOLD    = 0.02;   // RMS-Schwelle (Float32 -1..1)
-const VAD_SILENCE_MS   = 750;    // Stille nach Sprache -> senden (schneller)
-const VAD_MIN_SPEAK_MS = 300;    // Mindest-Sprechdauer (Rauschen ignorieren)
+const VAD_THRESHOLD    = 0.025;  // RMS-Schwelle — etwas empfindlicher für leise Stimmen
+const VAD_SILENCE_MS   = 1800;   // Stille nach Sprache → länger warten (war 1000)
+const VAD_MIN_SPEAK_MS = 400;    // Mindest-Sprechdauer
+const VAD_MAX_SPEAK_MS = 18000;  // Max-Aufnahme
 
 let vrActive      = false;
 let vrLang        = 'de-DE';
@@ -632,6 +658,13 @@ function vrVadTick() {
         setVrLabel('Spreche...');
       }
     } else if (vrVadState === 'speaking') {
+      // Max-Aufnahmezeit: Chunk erzwingen wenn zu lang (Rausch-Dauertrigger)
+      if (now - vrSpeechStart >= VAD_MAX_SPEAK_MS) {
+        vrBusy = true;
+        setVrLabel('Erkenne...');
+        vrChunkStop();
+        return;
+      }
       if (!isSpeech) {
         vrVadState     = 'silence';
         vrSilenceStart = now;
@@ -813,6 +846,42 @@ function updateTokenDisplay(usage) {
   if (!tokEl) return;
   const total = (usage.input || 0) + (usage.output || 0);
   tokEl.textContent = formatTokens(total);
+  updateCtxStats(usage);
+  if (typeof window.updateSessionStats === 'function') window.updateSessionStats(usage);
+}
+
+/* ─ Kontext-Stats Block ─────────────────────────────────────────── */
+const CTX_MAX      = 200000;   // Claude Sonnet 200k Kontext-Fenster
+const CTX_COMPACT  = 160000;   // ~80% → Kompaktierung
+
+function updateCtxStats(usage) {
+  const lastCtx  = usage.last_ctx  || 0;
+  const totalIn  = usage.input     || 0;
+  const totalOut = usage.output    || 0;
+  const reqs     = usage.requests  || 0;
+
+  const ctxPct     = lastCtx > 0 ? Math.min(100, (lastCtx / CTX_MAX * 100))    : 0;
+  const compactPct = lastCtx > 0 ? Math.min(100, (lastCtx / CTX_COMPACT * 100)) : 0;
+
+  const ctxFill     = document.getElementById("ctx-fill");
+  const compactFill = document.getElementById("compact-fill");
+  const ctxPctEl    = document.getElementById("ctx-pct");
+  const compactEl   = document.getElementById("compact-pct");
+  const ctxInEl     = document.getElementById("ctx-in");
+  const ctxOutEl    = document.getElementById("ctx-out");
+  const ctxReqEl    = document.getElementById("ctx-req");
+
+  if (ctxFill)     ctxFill.style.width     = ctxPct.toFixed(1) + "%";
+  if (compactFill) compactFill.style.width  = compactPct.toFixed(1) + "%";
+  if (ctxPctEl)    ctxPctEl.textContent     = ctxPct.toFixed(0) + "%";
+  if (compactEl)   compactEl.textContent    = compactPct.toFixed(0) + "%";
+  if (ctxInEl)     ctxInEl.textContent      = formatTokens(totalIn);
+  if (ctxOutEl)    ctxOutEl.textContent     = formatTokens(totalOut);
+  if (ctxReqEl)    ctxReqEl.textContent     = reqs || "—";
+
+  // Farb-Warnung bei hohem Kontext
+  if (ctxPctEl) ctxPctEl.style.color = ctxPct > 80 ? "var(--danger)" : ctxPct > 60 ? "#fbbf24" : "var(--cyan)";
+  if (compactEl) compactEl.style.color = compactPct > 80 ? "var(--danger)" : compactPct > 60 ? "#fbbf24" : "var(--cyan)";
 }
 
 async function pollStatus() {
@@ -820,8 +889,8 @@ async function pollStatus() {
     const data = await fetch("/api/status").then(r => r.json());
     const dotNet    = document.getElementById("dot-internet");
     const dotClaude = document.getElementById("dot-claude");
-    if (dotNet)    dotNet.className    = "conn-dot " + (data.internet ? "online" : "offline");
-    if (dotClaude) dotClaude.className = "conn-dot " + (data.claude   ? "online" : "offline");
+    if (dotNet)    dotNet.className    = "tb-conn-dot " + (data.internet ? "online" : "offline");
+    if (dotClaude) dotClaude.className = "tb-conn-dot " + (data.claude   ? "online" : "offline");
     if (data.tokens) updateTokenDisplay(data.tokens);
   } catch { /* ignore */ }
 }
@@ -875,7 +944,8 @@ async function playAudioBase64(b64, mime) {
     const arrayBuffer = buf.buffer;
 
     const _onEnd = () => {
-      if (wasActive) {
+      // Mic nur freigeben wenn JARVIS fertig ist (kein laufender Stream)
+      if (wasActive && !state.streaming) {
         setTimeout(() => {
           vrBusy = false;
           if (document.getElementById('lb-label')) setVrLabel('Hoere zu...');
@@ -967,7 +1037,7 @@ async function playSpoken(text, id = "") {
     console.log('[TTS] AudioContext state:', ctx ? ctx.state : 'null');
 
     const _onEnd = () => {
-      if (wasActive) {
+      if (wasActive && !state.streaming) {
         setTimeout(() => {
           vrBusy = false;
           if (document.getElementById('lb-label')) setVrLabel('Hoere zu...');

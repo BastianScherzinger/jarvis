@@ -10,6 +10,7 @@ import logging
 import socket
 import time as _time
 
+from pathlib import Path
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from agents.ceo import JarvisCEO, get_usage
 from agents.tools import WORKSPACE_TASKS, WORKSPACE_RESULTS
@@ -83,25 +84,30 @@ def _webm_to_wav(webm_bytes: bytes, rate: int = 16000) -> bytes:
 
 def _transcribe_whisper(buf: io.BytesIO, lang: str) -> str:
     """Lokale Transkription via faster-whisper (kein Netz)."""
-    import numpy as np
+    import numpy as _np
     buf.seek(0)
     with wave.open(buf, "rb") as wf:
         raw = wf.readframes(wf.getnframes())
-    samples = (
-        __import__("numpy")
-        .frombuffer(raw, dtype=__import__("numpy").int16)
-        .astype(__import__("numpy").float32) / 32768.0
-    )
+    samples = _np.frombuffer(raw, dtype=_np.int16).astype(_np.float32) / 32768.0
     lang_code = lang.split("-")[0]
-    segments, _ = _whisper.transcribe(
+    segments, info = _whisper.transcribe(
         samples,
         language=lang_code,
-        beam_size=1,
-        best_of=1,
+        beam_size=8,
+        best_of=3,
         temperature=0.0,
         vad_filter=True,
+        initial_prompt="JARVIS Assistent. Nutzer gibt kurze Befehle auf Deutsch.",
+        vad_parameters={"min_silence_duration_ms": 800, "speech_pad_ms": 300, "threshold": 0.4},
+        no_speech_threshold=0.55,
+        compression_ratio_threshold=1.8,
+        log_prob_threshold=-0.4,
     )
-    return " ".join(s.text.strip() for s in segments).strip()
+    texts = [s.text.strip() for s in segments if s.no_speech_prob < 0.45 and s.text.strip()]
+    result = " ".join(texts).strip()
+    if not result:
+        log.warn(f"Whisper: no_speech (lang_prob={info.language_probability:.2f})")
+    return result
 
 
 @app.route("/")
@@ -174,6 +180,16 @@ def voice_transcribe():
     except Exception:
         buf.seek(0)
 
+    # ── RMS-Mindestpegel: zu leise = kein Sprach-Signal ─────────────
+    duration_s = frames / rate_w if rate_w else 0
+    if rms < 400:
+        log.voice_nothing()
+        return jsonify({"text": "", "error": "Zu leise"})
+    # Lange + leise Aufnahme = sehr wahrscheinlich Umgebungslärm (Whisper halluziniert)
+    if duration_s > 12.0 and rms < 1800:
+        log.voice_nothing()
+        return jsonify({"text": "", "error": "Zu lang + zu leise (Umgebung)"})
+
     # ── Transkription ────────────────────────────────────────────────
     try:
         if _whisper_ready and _whisper is not None:
@@ -203,6 +219,80 @@ def voice_transcribe():
             return jsonify({"text": "", "error": f"Google-Fehler: {e}"}), 502
         log.err(str(e))
         return jsonify({"text": "", "error": f"Fehler: {e}"}), 500
+
+
+@app.route("/api/knowledge")
+def api_knowledge():
+    """Jede Info aus .md-Dateien als eigener Node — für maximale Sphere-Dichte."""
+    import re as _re
+    nodes = []
+
+    def _clean(text: str) -> str:
+        text = _re.sub(r'\*{1,2}([^*\n]+)\*{1,2}', r'\1', text)
+        text = _re.sub(r'`([^`\n]+)`', r'\1', text)
+        text = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+        text = _re.sub(r'https?://\S+', '', text)
+        return text.strip()
+
+    def _parse_file(path: Path, file_type: str):
+        result = [{"name": path.stem.replace("_", " "), "type": file_type}]
+        try:
+            in_code = False
+            for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                line = raw.strip()
+                if line.startswith("```"):
+                    in_code = not in_code
+                    continue
+                if in_code or not line or line.startswith("---"):
+                    continue
+
+                if line.startswith("## "):
+                    t = _clean(line[3:])
+                    if t: result.append({"name": t[:60], "type": "h2"})
+                elif line.startswith("### "):
+                    t = _clean(line[4:])
+                    if t: result.append({"name": t[:60], "type": "h3"})
+                elif line.startswith(("#", "#### ", "##### ")):
+                    t = _clean(line.lstrip("#").strip())
+                    if t and len(t) > 2: result.append({"name": t[:50], "type": "h3"})
+                elif line.startswith(("- ", "* ", "+ ")):
+                    t = _clean(line[2:])
+                    if t and len(t) > 3 and len(t) < 100:
+                        result.append({"name": t[:55], "type": "item"})
+                elif line.startswith("|") and not _re.match(r'^\|[-: |]+\|$', line):
+                    parts = [_clean(p) for p in line.split("|") if _clean(p) and len(_clean(p)) > 2]
+                    for p in parts[:3]:
+                        if len(p) > 3:
+                            result.append({"name": p[:45], "type": "item"})
+                elif _re.match(r'^\d+\.\s', line):
+                    t = _clean(_re.sub(r'^\d+\.\s*', '', line))
+                    if t and len(t) > 3 and len(t) < 100:
+                        result.append({"name": t[:55], "type": "item"})
+        except Exception:
+            pass
+        return result
+
+    here = Path(__file__).parent
+
+    # Alle .md im Projektordner
+    for md_file in sorted(here.glob("*.md")):
+        nodes.extend(_parse_file(md_file, "file"))
+
+    # Alle .md im obsidian_brain Unterordner (falls vorhanden)
+    brain_dir = here / "obsidian_brain"
+    if brain_dir.exists():
+        for md_file in sorted(brain_dir.glob("*.md")):
+            nodes.extend(_parse_file(md_file, "brain"))
+
+    # .claude Memory-Dateien
+    mem_dir = Path.home() / ".claude" / "projects" / "C--Users-basti-Desktop-jarvis" / "memory"
+    if mem_dir.exists():
+        for f in sorted(mem_dir.glob("*.md")):
+            if f.name == "MEMORY.md":
+                continue
+            nodes.extend(_parse_file(f, "memory"))
+
+    return jsonify(nodes)
 
 
 @app.route("/api/reset", methods=["POST"])
@@ -238,7 +328,6 @@ def api_workspace_file(folder, filename):
 
 @app.route("/api/speak", methods=["POST"])
 def api_speak():
-    log.tool_call("tts", "ROUTE HIT")   # debug: route wurde aufgerufen
     data = request.get_json() or {}
     text = data.get("text", "").strip()
     rid  = data.get("id",   "").strip()

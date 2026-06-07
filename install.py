@@ -63,6 +63,28 @@ def run() -> bool:
     _header()
     all_ok = True
 
+    # ── Git Update ───────────────────────────────────────────────────
+    import shutil
+    if shutil.which("git") and (HERE / ".git").exists():
+        print(f"  {CY}>{R}   Git update ...", end="", flush=True)
+        try:
+            res = subprocess.run(
+                ["git", "pull", "--ff-only"],
+                capture_output=True, text=True, cwd=HERE, timeout=12,
+                encoding="utf-8", errors="replace",
+            )
+            out = (res.stdout + res.stderr).strip().split("\n")[0][:60]
+            if res.returncode == 0:
+                if "already up" in out.lower() or "bereits" in out.lower():
+                    print(f"\r  {GR}OK{R}  Git  {GY}bereits aktuell{R}          ")
+                else:
+                    print(f"\r  {GR}OK{R}  Git  {GY}{out}{R}          ")
+            else:
+                print(f"\r  {YL}!{R}   Git pull  {GY}{out}{R}          ")
+        except Exception as e:
+            print(f"\r  {YL}!{R}   Git  {GY}({e}){R}          ")
+    # kein Git-Repo oder kein git → still überspringen
+
     # ── Python-Version ───────────────────────────────────────────────
     v = sys.version_info
     if v >= (3, 10):
@@ -151,6 +173,53 @@ def run() -> bool:
         else:
             _err(".env", "ANTHROPIC_KEY fehlt oder ist noch Platzhalter")
             all_ok = False
+
+    # ── Node.js / npx — für MCP-Server ─────────────────────────────
+    node_ok = shutil.which("node") is not None
+    npx_ok  = shutil.which("npx")  is not None
+    if node_ok and npx_ok:
+        try:
+            ver = subprocess.run(["node", "--version"], capture_output=True,
+                                 text=True, timeout=5).stdout.strip()
+            _ok(f"Node.js  {ver}  + npx")
+        except Exception:
+            _ok("Node.js + npx")
+    else:
+        _warn("Node.js nicht gefunden", "MCP-Server brauchen Node.js — https://nodejs.org")
+
+    # ── MCP-Server aus .mcp.json prüfen ─────────────────────────────
+    mcp_file = HERE / ".mcp.json"
+    if mcp_file.exists() and npx_ok:
+        import json as _json
+        try:
+            mcp_cfg = _json.loads(mcp_file.read_text(encoding="utf-8"))
+            servers = mcp_cfg.get("mcpServers", {})
+            for name, cfg in servers.items():
+                cmd  = cfg.get("command", "")
+                args = cfg.get("args", [])
+                env_needed = cfg.get("env", {})
+
+                # Prüfe ob benötigte Env-Vars gesetzt sind
+                missing_env = []
+                if env_needed:
+                    import os as _os
+                    for k, v in env_needed.items():
+                        real_val = _os.environ.get(k, "")
+                        placeholder = "${" in str(v)
+                        if not real_val and placeholder:
+                            missing_env.append(k)
+
+                if missing_env:
+                    _warn(f"MCP  {name}", f"Key fehlt: {', '.join(missing_env)}")
+                else:
+                    _ok(f"MCP  {name}", f"{cmd} {' '.join(str(a) for a in args[:2])}")
+        except Exception as e:
+            _warn(".mcp.json", f"Parse-Fehler: {e}")
+    elif mcp_file.exists() and not npx_ok:
+        _warn("MCP-Server", "npx fehlt — Node.js installieren")
+
+    # ── obsidian_brain Ordner anlegen ───────────────────────────────
+    (HERE / "obsidian_brain").mkdir(exist_ok=True)
 
     # ── workspace-Ordner anlegen ────────────────────────────────────
     for d in ["workspace/tasks", "workspace/results"]:

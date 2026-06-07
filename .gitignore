@@ -26,6 +26,12 @@ Scripts/
 # ── JARVIS Workspace (benutzerspezifische Daten) ──────────────────
 workspace/tasks/*.md
 workspace/results/*.md
+workspace/*.png
+workspace/*.jpg
+workspace/*.jpeg
+
+# ── obsidian_brain — wird committiert (Gehirn wächst mit!) ────────
+# obsidian_brain/ ist NICHT ignoriert — gehört in die Versionierung
 
 # ── Playwright Browser-Binaries (werden auto-installiert) ─────────
 # (kein Eintrag noetig, liegen in %APPDATA%\ms-playwright)

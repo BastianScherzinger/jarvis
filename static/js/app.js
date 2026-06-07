@@ -122,7 +122,7 @@ async function sendMessage() {
     disableSend(false);
     setStatus("idle", "Bereit");
     setLiveDot(false);
-    if (vrActive) setVoiceLabel("Hoere zu...");
+    if (vrActive && !vrBusy) setVoiceLabel("Hoere zu...");
     document.getElementById("msg-input").focus();
   }
 }
@@ -792,6 +792,14 @@ let _ttsAudio = null;
 async function playSpoken(text, id = "") {
   if (!text || !text.trim()) return;
 
+  // VAD SOFORT stoppen — noch vor dem Fetch, nicht erst wenn Audio laeuft
+  const wasActive = vrActive;
+  if (wasActive) {
+    vrBusy = true;
+    setVrLabel('JARVIS spricht...');
+    setVoiceDot('connected');
+  }
+
   // Laufendes Audio stoppen
   if (_ttsAudio) {
     _ttsAudio.pause();
@@ -802,10 +810,11 @@ async function playSpoken(text, id = "") {
     const resp = await fetch('/api/speak', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ text: text.trim(), id }),   // id → Prebuild-Cache
+      body:    JSON.stringify({ text: text.trim(), id }),
     });
     if (!resp.ok) {
       console.warn('[TTS] Server-Fehler:', resp.status);
+      if (wasActive) { vrBusy = false; vrVadTick(); }
       return;
     }
 
@@ -814,22 +823,17 @@ async function playSpoken(text, id = "") {
     const audio = new Audio(url);
     _ttsAudio   = audio;
 
-    // VAD pausieren während JARVIS spricht (verhindert Selbstaufnahme)
-    const wasActive = vrActive;
-    if (wasActive) {
-      vrBusy = true;
-      setVrLabel('JARVIS spricht...');
-      setVoiceDot('connected');
-    }
-
     audio.onended = () => {
       URL.revokeObjectURL(url);
       _ttsAudio = null;
       if (wasActive) {
-        vrBusy = false;
-        setVrLabel('Hoere zu...');
-        setVoiceDot('listening');
-        vrVadTick();  // VAD-Loop wieder starten
+        // 400ms Puffer: Echo vom Lautsprecher abklingen lassen
+        setTimeout(() => {
+          vrBusy = false;
+          setVrLabel('Hoere zu...');
+          setVoiceDot('listening');
+          vrVadTick();
+        }, 400);
       }
     };
 
@@ -843,6 +847,6 @@ async function playSpoken(text, id = "") {
     console.log('[TTS] Spielt:', text.slice(0, 60));
   } catch (e) {
     console.warn('[TTS] Fehler:', e.message);
-    vrBusy = false;
+    if (wasActive) { vrBusy = false; vrVadTick(); }
   }
 }

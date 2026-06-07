@@ -262,6 +262,33 @@ TOOL_DEFINITIONS = [
             "required": ["agent", "task"],
         },
     },
+    {
+        "name": "local_ai_worker",
+        "description": (
+            "Sendet eine Teilaufgabe an ein lokales Ollama-KI-Modell (läuft offline auf dem PC). "
+            "Ideal für: große Textverarbeitungen, Vorab-Analyse, Draft-Generierung, repetitive "
+            "Subtasks — ohne Claude-API-Kosten. Das Modell ist in .env als JARVIS_LOCAL_MODEL gesetzt. "
+            "Nutze dies bei großen Aufgaben um Subtasks parallel vorzubereiten."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Der Prompt / die Aufgabe für das lokale Modell. Sei präzise.",
+                },
+                "system": {
+                    "type": "string",
+                    "description": "Optional: System-Prompt für den Worker (Rolle, Fokus, Format)",
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Optional: Modellname überschreiben (z.B. 'llama3.3:70b'). Default: aus .env",
+                },
+            },
+            "required": ["task"],
+        },
+    },
 ]
 
 
@@ -307,6 +334,8 @@ def execute_tool(name: str, inputs: dict) -> str:
             return _search_web(inputs["query"], inputs.get("results", 5))
         case "delegate_to_agent":
             return _delegate(inputs["agent"], inputs["task"])
+        case "local_ai_worker":
+            return _local_ai_worker(inputs["task"], inputs.get("system", ""), inputs.get("model", ""))
         case _:
             return f"Unbekanntes Tool: {name}"
 
@@ -754,6 +783,41 @@ def _search_web(query: str, max_results: int = 5) -> str:
             return "\n".join(lines)
         except Exception as e:
             return f"Suche-Fehler: {e}"
+
+
+def _local_ai_worker(task: str, system: str = "", model: str = "") -> str:
+    """Sendet einen Prompt an das lokale Ollama-Modell (localhost:11434)."""
+    import os, json as _json
+    from urllib.request import urlopen, Request
+    from urllib.error import URLError
+
+    model = model.strip() or os.getenv("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
+    messages = []
+    if system.strip():
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": task})
+
+    payload = _json.dumps({"model": model, "messages": messages, "stream": False}).encode()
+    try:
+        req = Request(
+            "http://localhost:11434/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=300) as resp:
+            data = _json.loads(resp.read())
+        content = data.get("message", {}).get("content", "").strip()
+        if not content:
+            return f"Ollama ({model}): Keine Antwort erhalten."
+        return f"[Lokales Modell: {model}]\n\n{content}"
+    except URLError:
+        return (
+            f"Fehler: Ollama läuft nicht oder ist nicht erreichbar (localhost:11434).\n"
+            f"Starte Ollama mit: ollama serve"
+        )
+    except Exception as e:
+        return f"Ollama-Fehler ({model}): {e}"
 
 
 def _delegate(agent_key: str, task: str) -> str:

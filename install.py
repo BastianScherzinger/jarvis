@@ -174,6 +174,90 @@ def run() -> bool:
             _err(".env", "ANTHROPIC_KEY fehlt oder ist noch Platzhalter")
             all_ok = False
 
+    # ── Ollama — lokale KI-Worker ───────────────────────────────────
+    ollama_exe = shutil.which("ollama")
+    if not ollama_exe:
+        print(f"  {CY}>{R}   Ollama installieren ...", end="", flush=True)
+        wg = shutil.which("winget")
+        installed = False
+        if wg:
+            res = subprocess.run(
+                ["winget", "install", "--id", "Ollama.Ollama", "-e", "--silent", "--accept-package-agreements"],
+                capture_output=True, timeout=120,
+            )
+            installed = res.returncode == 0
+            ollama_exe = shutil.which("ollama")
+        if installed and ollama_exe:
+            print(f"\r  {GR}OK{R}  Ollama installiert                    ")
+        else:
+            print(f"\r  {YL}!{R}   Ollama nicht gefunden  {GY}https://ollama.com/download{R}")
+
+    if ollama_exe:
+        # Prüfe ob Modell schon in .env gesetzt ist
+        env_content = (HERE / ".env").read_text(encoding="utf-8") if (HERE / ".env").exists() else ""
+        has_model   = "JARVIS_LOCAL_MODEL=" in env_content and "JARVIS_LOCAL_MODEL=\n" not in env_content
+
+        MODELS = {
+            "1": {
+                "key":  "allware",
+                "name": "llama3.3:70b",
+                "desc": "Bestes lokales Modell  (~43 GB, braucht GPU / 48 GB RAM)",
+            },
+            "2": {
+                "key":  "laptop",
+                "name": "qwen2.5:7b",
+                "desc": "HP-Laptop-optimiert    (~4.7 GB, läuft auf 8 GB RAM)",
+            },
+        }
+
+        if not has_model:
+            print()
+            print(f"  {CY}{'─' * 50}{R}")
+            print(f"  {CY}{B}  Lokales KI-Modell wählen{R}")
+            print(f"  {CY}{'─' * 50}{R}")
+            for k, m in MODELS.items():
+                print(f"  [{k}]  {B}{m['key'].upper():<10}{R}  {m['name']:<20}  {GY}{m['desc']}{R}")
+            print(f"  [0]  Überspringen{GY} (kein lokales Modell){R}")
+            print()
+            try:
+                choice = input(f"  {CY}Auswahl (0/1/2):{R} ").strip()
+            except (EOFError, KeyboardInterrupt):
+                choice = "0"
+
+            if choice in MODELS:
+                chosen = MODELS[choice]
+                model_name = chosen["name"]
+                # In .env eintragen
+                with open(HERE / ".env", "a", encoding="utf-8") as ef:
+                    ef.write(f"\nJARVIS_LOCAL_MODEL={model_name}\n")
+                print()
+                _installing(f"Modell '{model_name}' herunterladen  (kann einige Minuten dauern)")
+                pull = subprocess.run(
+                    ["ollama", "pull", model_name],
+                    timeout=3600,
+                )
+                if pull.returncode == 0:
+                    print(f"\r  {GR}OK{R}  Modell '{model_name}' bereit                   ")
+                    _ok(f"JARVIS_LOCAL_MODEL={model_name}")
+                else:
+                    print(f"\r  {YL}!{R}   Download fehlgeschlagen — manuell: ollama pull {model_name}")
+            else:
+                _warn("Kein lokales Modell gewählt", "local_ai_worker Tool nicht verfügbar")
+        else:
+            # Modell schon gesetzt — prüfe ob es lokal vorhanden ist
+            import re as _re
+            m = _re.search(r"JARVIS_LOCAL_MODEL=(.+)", env_content)
+            if m:
+                model_name = m.group(1).strip()
+                list_res = subprocess.run(
+                    ["ollama", "list"], capture_output=True, text=True, timeout=10,
+                    encoding="utf-8", errors="replace",
+                )
+                if model_name.split(":")[0] in list_res.stdout:
+                    _ok(f"Ollama  {model_name}", "bereit")
+                else:
+                    _warn(f"Modell '{model_name}' nicht gefunden", f"manuell: ollama pull {model_name}")
+
     # ── Node.js / npx — für MCP-Server ─────────────────────────────
     node_ok = shutil.which("node") is not None
     npx_ok  = shutil.which("npx")  is not None

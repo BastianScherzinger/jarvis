@@ -521,10 +521,10 @@ function formatInput(tool, input) {
  *         → Stille 1.2s → Flask → Google Speech → Auto-Send.
  * ════════════════════════════════════════════════════════════════ */
 
-const VAD_THRESHOLD    = 0.025;  // RMS-Schwelle — etwas empfindlicher für leise Stimmen
-const VAD_SILENCE_MS   = 1800;   // Stille nach Sprache → länger warten (war 1000)
-const VAD_MIN_SPEAK_MS = 400;    // Mindest-Sprechdauer
-const VAD_MAX_SPEAK_MS = 18000;  // Max-Aufnahme
+const VAD_THRESHOLD    = 0.025;  // RMS-Schwelle
+const VAD_SILENCE_MS   = 1200;   // 1.2s Stille → Aufnahme stoppen
+const VAD_MIN_SPEAK_MS = 350;    // Mindest-Sprechdauer
+const VAD_MAX_SPEAK_MS = 10000;  // Max 10s — verhindert endlose Aufnahmen
 
 let vrActive      = false;
 let vrLang        = 'de-DE';

@@ -179,7 +179,36 @@ Der CEO-Agent (`JarvisCEO`) ist das Herzstück:
 
 ---
 
-## 6. Die 10 Spezial-Agenten — Team-Dokumentation
+## 6. Lokale KI-Worker — Ollama-Integration
+
+JARVIS kann große Aufgaben an lokale KI-Modelle (Ollama) delegieren. Diese laufen **offline auf dem PC**, kosten keine API-Tokens und eignen sich für repetitive oder große Subtasks.
+
+**Tool:** `local_ai_worker`
+
+**Wann nutzen:**
+- Große Textmengen zusammenfassen / analysieren
+- Drafts generieren die Claude dann verfeinert
+- Parallele Subtasks bei komplexen Aufgaben
+- Dinge die keine Claude-Qualität brauchen
+
+**Wie benutzen:**
+```
+local_ai_worker(
+  task="Analysiere diese 50 Dateien und fasse die wichtigsten Muster zusammen: ...",
+  system="Du bist ein Python-Code-Analyst. Antworte auf Deutsch, strukturiert.",
+  model=""  # leer = JARVIS_LOCAL_MODEL aus .env
+)
+```
+
+**Verfügbare Modelle** (in .env als `JARVIS_LOCAL_MODEL` gesetzt):
+- `llama3.3:70b` — Allware: bestes lokales Modell, braucht starke Hardware
+- `qwen2.5:7b` — Laptop: HP-optimiert, läuft auf 8 GB RAM, sehr gut für Code
+
+**Ollama-Voraussetzung:** Ollama muss laufen (`ollama serve` oder als Windows-Service). Port 11434.
+
+---
+
+## 7. Die 10 Spezial-Agenten — Team-Dokumentation
 
 JARVIS delegiert an Spezialisten wenn eine Aufgabe deren Expertise erfordert. **Niemals für einfache Aufgaben delegieren** — nur wenn das Fach-Wissen wirklich gebraucht wird.
 

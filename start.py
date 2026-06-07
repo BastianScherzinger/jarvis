@@ -12,6 +12,8 @@ import subprocess
 import sys
 import time
 import os
+import threading
+import webbrowser
 
 # UTF-8 fuer diesen Prozess und alle Kindprozesse
 if hasattr(sys.stdout, "reconfigure"):
@@ -39,6 +41,12 @@ def main():
         C = "\033[96m"; R = "\033[0m"; YL = "\033[93m"
         print(f"  {YL}[!]{R}  Setup unvollstaendig. JARVIS startet trotzdem.")
         print()
+
+    # ── Browser automatisch öffnen ──────────────────────────────────
+    def _open_browser():
+        time.sleep(2.2)
+        webbrowser.open("http://localhost:5000")
+    threading.Thread(target=_open_browser, daemon=True).start()
 
     # ── Flask starten ────────────────────────────────────────────────
     flask = subprocess.Popen(

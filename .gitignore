@@ -1,6 +1,9 @@
 # ── Secrets (NIEMALS committen!) ──────────────────────────────────
 .env
 
+# ── Interne Entwickler-Dokumentation (nicht fuer Kunden) ──────────
+cloud.md
+
 # ── Python ────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]

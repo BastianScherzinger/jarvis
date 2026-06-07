@@ -27,7 +27,7 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Absoluter Pfad zur Datei (z.B. C:\\Users\\basti\\code.py)"},
+                "path": {"type": "string", "description": "Absoluter Pfad zur Datei (z.B. C:\\Users\\name\\code.py)"},
             },
             "required": ["path"],
         },

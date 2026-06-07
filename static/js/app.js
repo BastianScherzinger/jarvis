@@ -789,7 +789,7 @@ function showToast(msg) {
  * ════════════════════════════════════════════════════════════════ */
 let _ttsAudio = null;
 
-async function playSpoken(text) {
+async function playSpoken(text, id = "") {
   if (!text || !text.trim()) return;
 
   // Laufendes Audio stoppen
@@ -802,7 +802,7 @@ async function playSpoken(text) {
     const resp = await fetch('/api/speak', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ text: text.trim() }),
+      body:    JSON.stringify({ text: text.trim(), id }),   // id → Prebuild-Cache
     });
     if (!resp.ok) {
       console.warn('[TTS] Server-Fehler:', resp.status);

@@ -1,73 +1,62 @@
 """
-JARVIS TTS — Text zu Sprache
-Primär:  edge-tts  (Microsoft Neural, kostenlos, kein API-Key)
-Premium: ElevenLabs (ELEVENLABS_KEY in .env setzen)
-
-Stimme konfigurieren via .env:
-  JARVIS_VOICE=de-DE-ConradNeural   (Standard — tiefer deutscher Mann)
-  JARVIS_VOICE=en-GB-RyanNeural    (britisch, klassischer JARVIS-Klang)
-  ELEVENLABS_KEY=sk-...             (schaltet auf ElevenLabs um)
-  ELEVENLABS_VOICE=JBFqnCBsd6RMkjVDRZzb  (Standard: George, britisch)
+JARVIS TTS
+Prioritaet: ElevenLabs > edge-tts (Neural, kostenlos) > pyttsx3 (lokal, Fallback)
 """
 import asyncio
 import io
 import os
 import sys
+import threading
+import time
 
-ELEVENLABS_KEY   = os.getenv("ELEVENLABS_KEY", "").strip()
+ELEVENLABS_KEY   = os.getenv("ELEVENLABS_KEY",  "").strip()
 ELEVENLABS_VOICE = os.getenv("ELEVENLABS_VOICE", "JBFqnCBsd6RMkjVDRZzb")
-EDGE_VOICE       = os.getenv("JARVIS_VOICE",    "de-DE-ConradNeural")
-EDGE_RATE        = os.getenv("JARVIS_RATE",     "+18%")   # etwas schneller klingt natuerlicher
+EDGE_VOICE       = os.getenv("JARVIS_VOICE",     "de-DE-ConradNeural")
+EDGE_RATE        = os.getenv("JARVIS_RATE",      "+15%")
 
-# ── Vorab-Generierungs-Cache ──────────────────────────────────────
-# key: rid (str) → value: (bytes, mime)
+# ── Prebuild-Cache ─────────────────────────────────────────────────
 _cache: dict[str, tuple[bytes, str]] = {}
 
 
 def prebuild(text: str, rid: str) -> None:
-    """
-    Generiert TTS im Hintergrund-Thread und cached das Ergebnis.
-    Wird aufgerufen waehrend JARVIS noch Text streamt, sodass
-    das Audio sofort abgespielt werden kann wenn der Browser fragt.
-    """
-    import threading
-    def _run() -> None:
+    """Generiert TTS im Hintergrund, cached das Ergebnis unter `rid`."""
+    def _run():
         try:
-            data, mime = speak(text)
-            _cache[rid] = (data, mime)
+            _cache[rid] = speak(text)
         except Exception:
             pass
     threading.Thread(target=_run, daemon=True).start()
 
 
 def get_cached(rid: str) -> tuple[bytes, str] | None:
-    """Gibt gecachtes Audio zurueck und entfernt es aus dem Cache."""
     return _cache.pop(rid, None)
 
 
+# ── Haupt-Einstiegspunkt ───────────────────────────────────────────
 def speak(text: str) -> tuple[bytes, str]:
-    """
-    Gibt (audio_bytes, mime_type) zurück.
-    Wirft RuntimeError wenn kein TTS-Backend verfügbar.
-    """
     text = text.strip()
     if not text:
-        raise ValueError("Kein Text übergeben")
+        raise ValueError("Kein Text")
     if ELEVENLABS_KEY:
         return _elevenlabs(text)
-    return _edge_tts(text)
+    try:
+        return _edge_tts(text)
+    except Exception as primary_err:
+        try:
+            return _pyttsx3_speak(text)
+        except Exception:
+            raise RuntimeError(f"TTS komplett fehlgeschlagen: {primary_err}")
 
 
-# ── edge-tts (kostenlos, Microsoft Neural TTS) ────────────────────
+# ── edge-tts (Microsoft Neural, kostenlos) ────────────────────────
+_edge_lock = threading.Lock()   # ein TTS-Call pro Thread gleichzeitig
+
+
 def _edge_tts(text: str) -> tuple[bytes, str]:
     try:
         import edge_tts
     except ImportError:
-        raise RuntimeError(
-            "edge-tts nicht installiert.\n"
-            "Bitte ausführen:  pip install edge-tts\n"
-            "Dann Server neu starten."
-        )
+        raise RuntimeError("edge-tts nicht installiert: pip install edge-tts")
 
     async def _stream() -> bytes:
         comm = edge_tts.Communicate(text, EDGE_VOICE, rate=EDGE_RATE)
@@ -77,33 +66,92 @@ def _edge_tts(text: str) -> tuple[bytes, str]:
                 buf.write(chunk["data"])
         return buf.getvalue()
 
-    # Neuen Event-Loop pro Aufruf (thread-safe in Flask threaded mode)
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    last_err = None
+    for attempt in range(2):
+        try:
+            with _edge_lock:
+                # Explizit neuen Event-Loop erstellen — thread-safe in Flask threaded mode
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    data = loop.run_until_complete(_stream())
+                finally:
+                    loop.close()
+            if data:
+                return data, "audio/mpeg"
+            raise RuntimeError("Kein Audio erhalten")
+        except Exception as e:
+            last_err = e
+            if attempt == 0:
+                time.sleep(0.3)   # kurz warten, dann nochmal
 
-    data = asyncio.run(_stream())
-    if not data:
-        raise RuntimeError("edge-tts: kein Audio erhalten")
-    return data, "audio/mpeg"
+    raise RuntimeError(f"edge-tts: {last_err}")
 
 
-# ── ElevenLabs (premium, API-Key nötig) ──────────────────────────
+# ── pyttsx3 (lokal, Windows SAPI — Fallback wenn edge-tts versagt) ─
+_pytts_lock = threading.Lock()
+
+# Stimmen-Praeferenz (erste passende gewinnt)
+_VOICE_PREF = ["ryan", "stefan", "konrad", "david", "hedda", "guy", "george", "mark", "zira"]
+
+
+def _pyttsx3_speak(text: str) -> tuple[bytes, str]:
+    try:
+        import pyttsx3
+    except ImportError:
+        raise RuntimeError("pyttsx3 nicht installiert: pip install pyttsx3")
+
+    import tempfile
+
+    with _pytts_lock:
+        engine = pyttsx3.init()
+        try:
+            voices = engine.getProperty("voices") or []
+            custom = os.getenv("JARVIS_VOICE_LOCAL", "").lower()
+            order  = ([custom] if custom else []) + _VOICE_PREF
+
+            for kw in order:
+                for v in voices:
+                    if kw in v.name.lower():
+                        engine.setProperty("voice", v.id)
+                        break
+                else:
+                    continue
+                break
+
+            rate = int(os.getenv("JARVIS_LOCAL_RATE", "170"))
+            engine.setProperty("rate",   rate)
+            engine.setProperty("volume", 1.0)
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                tmp = f.name
+
+            try:
+                engine.save_to_file(text, tmp)
+                engine.runAndWait()
+                with open(tmp, "rb") as f:
+                    data = f.read()
+            finally:
+                try: os.unlink(tmp)
+                except OSError: pass
+
+            if not data:
+                raise RuntimeError("pyttsx3: kein Audio generiert")
+            return data, "audio/wav"
+        finally:
+            try: engine.stop()
+            except Exception: pass
+
+
+# ── ElevenLabs (Premium) ──────────────────────────────────────────
 def _elevenlabs(text: str) -> tuple[bytes, str]:
-    import urllib.request
-    import json
-
+    import urllib.request, json
     url     = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE}"
     payload = json.dumps({
         "text":           text,
         "model_id":       "eleven_multilingual_v2",
-        "voice_settings": {
-            "stability":        0.45,
-            "similarity_boost": 0.80,
-            "style":            0.0,
-            "use_speaker_boost": True,
-        },
-    }).encode("utf-8")
-
+        "voice_settings": {"stability": 0.45, "similarity_boost": 0.80},
+    }).encode()
     req = urllib.request.Request(url, data=payload, headers={
         "xi-api-key":   ELEVENLABS_KEY,
         "Content-Type": "application/json",
@@ -113,8 +161,7 @@ def _elevenlabs(text: str) -> tuple[bytes, str]:
         return resp.read(), "audio/mpeg"
 
 
-# ── Backend-Status (beim Start ausgeben) ─────────────────────────
 def backend_name() -> str:
     if ELEVENLABS_KEY:
-        return f"ElevenLabs ({ELEVENLABS_VOICE[:8]}...)"
-    return f"edge-tts ({EDGE_VOICE})"
+        return f"ElevenLabs ({ELEVENLABS_VOICE[:12]}...)"
+    return f"edge-tts ({EDGE_VOICE})  +  pyttsx3 Fallback"

@@ -81,6 +81,7 @@ def run() -> bool:
         ("playwright",         "playwright"),
         ("faster_whisper",     "faster-whisper"),
         ("imageio_ffmpeg",     "imageio-ffmpeg"),
+        ("pyttsx3",            "pyttsx3"),
     ]
 
     if req_file.exists():

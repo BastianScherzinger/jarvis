@@ -157,6 +157,7 @@ class JarvisCEO:
                                     tts_spoken = candidate
                                     _tts.prebuild(candidate, tts_rid)
                                     tts_started = True
+                                    log.tool_call("tts", f"→ mid-stream: {candidate[:60]}")
                                     yield _sse({"type": "spoken", "text": candidate, "id": tts_rid})
 
                         elif delta.type == "input_json_delta" and current_tool:
@@ -254,7 +255,10 @@ class JarvisCEO:
                     if spoken and len(spoken) > 3:
                         rid = uuid.uuid4().hex[:10]
                         _tts.prebuild(spoken, rid)
+                        log.tool_call("tts", f"→ spoken: {spoken[:60]}")
                         yield _sse({"type": "spoken", "text": spoken, "id": rid})
+                    else:
+                        log.warn(f"TTS: kein spoken (round_text={repr(round_text[:40])})")
 
                 self.history.append({"role": "assistant", "content": accumulated_resp})
                 log.response_done(elapsed=time.time() - stream_start, tokens=token_count)

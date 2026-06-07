@@ -791,27 +791,25 @@ let _ttsAudio = null;
 
 async function playSpoken(text, id = "") {
   if (!text || !text.trim()) return;
-
-  // VAD SOFORT stoppen — noch vor dem Fetch, nicht erst wenn Audio laeuft
-  const wasActive = vrActive;
-  if (wasActive) {
-    vrBusy = true;
-    setVrLabel('JARVIS spricht...');
-    setVoiceDot('connected');
-  }
-
-  // Laufendes Audio stoppen
-  if (_ttsAudio) {
-    _ttsAudio.pause();
-    _ttsAudio = null;
-  }
+  console.log('[TTS] playSpoken aufgerufen:', text.slice(0, 60), 'id:', id);
 
   try {
+    // VAD stoppen — INNERHALB try damit Exceptions gefangen werden
+    const wasActive = vrActive;
+    if (wasActive) {
+      vrBusy = true;
+      if (document.getElementById('lb-label')) setVrLabel('JARVIS spricht...');
+      setVoiceDot('connected');
+    }
+
+    if (_ttsAudio) { _ttsAudio.pause(); _ttsAudio = null; }
+
     const resp = await fetch('/api/speak', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ text: text.trim(), id }),
     });
+
     if (!resp.ok) {
       console.warn('[TTS] Server-Fehler:', resp.status);
       if (wasActive) { vrBusy = false; vrVadTick(); }
@@ -827,26 +825,27 @@ async function playSpoken(text, id = "") {
       URL.revokeObjectURL(url);
       _ttsAudio = null;
       if (wasActive) {
-        // 400ms Puffer: Echo vom Lautsprecher abklingen lassen
         setTimeout(() => {
           vrBusy = false;
-          setVrLabel('Hoere zu...');
+          if (document.getElementById('lb-label')) setVrLabel('Hoere zu...');
           setVoiceDot('listening');
           vrVadTick();
         }, 400);
       }
     };
 
-    audio.onerror = () => {
+    audio.onerror = (e) => {
+      console.warn('[TTS] Audio-Fehler:', e);
       URL.revokeObjectURL(url);
       _ttsAudio = null;
       if (wasActive) { vrBusy = false; vrVadTick(); }
     };
 
     await audio.play();
-    console.log('[TTS] Spielt:', text.slice(0, 60));
+    console.log('[TTS] spielt:', text.slice(0, 60));
+
   } catch (e) {
-    console.warn('[TTS] Fehler:', e.message);
-    if (wasActive) { vrBusy = false; vrVadTick(); }
+    console.warn('[TTS] Fehler in playSpoken:', e);
+    if (vrActive) { vrBusy = false; vrVadTick(); }
   }
 }

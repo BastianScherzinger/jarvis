@@ -145,6 +145,97 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "web_scroll",
+        "description": "Scrollt auf der aktuellen Seite. Richtungen: down/up/top/bottom. Oder scrollt zu einem Element via Selektor.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "direction": {"type": "string", "enum": ["down", "up", "top", "bottom"], "description": "Scroll-Richtung (default: down)"},
+                "amount":    {"type": "integer", "description": "Pixel zum Scrollen bei down/up (default: 600)"},
+                "selector":  {"type": "string",  "description": "Optional: CSS-Selektor — scrollt direkt zu diesem Element"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "web_get_links",
+        "description": "Gibt alle Links der aktuellen Seite zurück (Text + URL). Ideal zum Entdecken von Navigation und Unterseiten.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "selector": {"type": "string", "description": "Optional: CSS-Selektor um nur Links in einem Bereich zu holen (z.B. 'nav', 'main', 'article')"},
+                "filter":   {"type": "string", "description": "Optional: Nur Links die diesen Text oder URL-Teil enthalten"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "web_navigate",
+        "description": "Navigiert im Browser: zurück, vorwärts, neu laden oder Status anzeigen (URL + Titel).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["back", "forward", "reload", "status"],
+                    "description": "back=zurück, forward=vorwärts, reload=neu laden, status=aktuelle URL/Titel",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "web_select",
+        "description": "Wählt eine Option aus einem <select>-Dropdown auf der aktuellen Seite.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "selector": {"type": "string", "description": "CSS-Selektor des <select>-Elements"},
+                "value":    {"type": "string", "description": "Wert oder sichtbarer Text der Option"},
+            },
+            "required": ["selector", "value"],
+        },
+    },
+    {
+        "name": "web_evaluate",
+        "description": (
+            "Führt JavaScript auf der aktuellen Seite aus und gibt das Ergebnis zurück. "
+            "Sehr mächtig für: Daten-Extraktion, DOM-Zugriff, versteckte Felder auslesen, Formular-Manipulation. "
+            "Beispiel: '() => document.title' oder '() => Array.from(document.querySelectorAll(\"h2\")).map(e=>e.innerText)'"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "script": {"type": "string", "description": "JavaScript als Arrow-Funktion: '() => { return ... }' oder '() => ausdruck'"},
+            },
+            "required": ["script"],
+        },
+    },
+    {
+        "name": "web_extract_table",
+        "description": "Extrahiert eine HTML-Tabelle von der aktuellen Seite als lesbaren Text mit Spalten.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "selector": {"type": "string", "description": "CSS-Selektor für die Tabelle (default: erste Tabelle auf der Seite)"},
+                "index":    {"type": "integer", "description": "0-basierter Index wenn mehrere Tabellen (default: 0)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "download_file",
+        "description": "Lädt eine Datei von einer URL herunter und speichert sie im workspace-Ordner.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url":      {"type": "string", "description": "Direkte Download-URL der Datei"},
+                "filename": {"type": "string", "description": "Dateiname im workspace (optional, wird aus URL abgeleitet)"},
+            },
+            "required": ["url"],
+        },
+    },
+    {
         "name": "delegate_to_agent",
         "description": (
             "Delegiert eine Spezialaufgabe an einen Experten im Team. "
@@ -198,6 +289,20 @@ def execute_tool(name: str, inputs: dict) -> str:
             return _web_type(inputs["selector"], inputs["text"], inputs.get("submit", False))
         case "web_screenshot":
             return _web_screenshot(inputs.get("filename", "screenshot.png"))
+        case "web_scroll":
+            return _web_scroll(inputs.get("direction", "down"), inputs.get("amount", 600), inputs.get("selector"))
+        case "web_get_links":
+            return _web_get_links(inputs.get("selector"), inputs.get("filter"))
+        case "web_navigate":
+            return _web_navigate(inputs["action"])
+        case "web_select":
+            return _web_select(inputs["selector"], inputs["value"])
+        case "web_evaluate":
+            return _web_evaluate(inputs["script"])
+        case "web_extract_table":
+            return _web_extract_table(inputs.get("selector"), inputs.get("index", 0))
+        case "download_file":
+            return _download_file(inputs["url"], inputs.get("filename"))
         case "search_web":
             return _search_web(inputs["query"], inputs.get("results", 5))
         case "delegate_to_agent":
@@ -402,6 +507,148 @@ def _web_screenshot(filename: str = "screenshot.png") -> str:
         return f"Screenshot gespeichert: {out}\nAktuelle URL: {page.url}"
     except Exception as e:
         return f"Screenshot-Fehler: {e}"
+
+
+def _web_scroll(direction: str = "down", amount: int = 600, selector: str | None = None) -> str:
+    try:
+        page = _get_page()
+        if selector:
+            el = page.query_selector(selector)
+            if not el:
+                return f"Element nicht gefunden: {selector}"
+            el.scroll_into_view_if_needed()
+            return f"Zu '{selector}' gescrollt | URL: {page.url}"
+        scripts = {
+            "down":   f"window.scrollBy(0, {amount})",
+            "up":     f"window.scrollBy(0, -{amount})",
+            "top":    "window.scrollTo(0, 0)",
+            "bottom": "window.scrollTo(0, document.body.scrollHeight)",
+        }
+        page.evaluate(scripts.get(direction, f"window.scrollBy(0, {amount})"))
+        return f"Gescrollt: {direction}" + (f" ({amount}px)" if direction in ("down", "up") else "")
+    except Exception as e:
+        return f"Scroll-Fehler: {e}"
+
+
+def _web_get_links(selector: str | None = None, filter_text: str | None = None) -> str:
+    try:
+        page = _get_page()
+        links = page.evaluate("""(sel) => {
+            const scope = sel ? document.querySelector(sel) : document;
+            if (!scope) return [];
+            return Array.from(scope.querySelectorAll('a[href]')).map(a => ({
+                text: a.innerText.trim().replace(/\\s+/g, ' ').slice(0, 80),
+                href: a.href,
+            })).filter(l => l.text && l.href && !l.href.startsWith('javascript:'));
+        }""", selector)
+        if filter_text:
+            ft = filter_text.lower()
+            links = [l for l in links if ft in l["text"].lower() or ft in l["href"].lower()]
+        links = links[:60]
+        if not links:
+            return "Keine Links gefunden."
+        lines = [f"Links auf {page.url}  ({len(links)} gesamt):\n"]
+        for l in links:
+            lines.append(f"• {l['text']}")
+            lines.append(f"  {l['href']}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Links-Fehler: {e}"
+
+
+def _web_navigate(action: str) -> str:
+    try:
+        page = _get_page()
+        if action == "status":
+            return f"URL: {page.url}\nTitel: {page.title()}"
+        if action == "back":
+            page.go_back(timeout=10_000, wait_until="domcontentloaded")
+        elif action == "forward":
+            page.go_forward(timeout=10_000, wait_until="domcontentloaded")
+        elif action == "reload":
+            page.reload(timeout=15_000, wait_until="domcontentloaded")
+        else:
+            return f"Unbekannte Aktion: {action}"
+        return f"{action.capitalize()} | URL: {page.url} | Titel: {page.title()}"
+    except Exception as e:
+        return f"Navigation-Fehler: {e}"
+
+
+def _web_select(selector: str, value: str) -> str:
+    try:
+        page = _get_page()
+        try:
+            page.select_option(selector, value=value, timeout=5_000)
+        except Exception:
+            page.select_option(selector, label=value, timeout=5_000)
+        return f"Ausgewählt: '{value}' in '{selector}'"
+    except Exception as e:
+        return f"Select-Fehler: {e}"
+
+
+def _web_evaluate(script: str) -> str:
+    try:
+        page = _get_page()
+        if not script.strip().startswith("("):
+            script = f"() => {{ return ({script}); }}"
+        result = page.evaluate(script)
+        if result is None:
+            return "Script ausgeführt (kein Rückgabewert)"
+        text = str(result)
+        if len(text) > 6000:
+            text = text[:6000] + "\n[... gekürzt ...]"
+        return text
+    except Exception as e:
+        return f"Script-Fehler: {e}"
+
+
+def _web_extract_table(selector: str | None = None, index: int = 0) -> str:
+    try:
+        page = _get_page()
+        rows = page.evaluate("""([sel, idx]) => {
+            const tables = sel
+                ? document.querySelectorAll(sel)
+                : document.querySelectorAll('table');
+            const table = tables[idx];
+            if (!table) return null;
+            return Array.from(table.querySelectorAll('tr')).map(tr =>
+                Array.from(tr.querySelectorAll('th, td')).map(c =>
+                    c.innerText.trim().replace(/\\s+/g, ' ')
+                )
+            ).filter(row => row.some(c => c));
+        }""", [selector, index])
+        if not rows:
+            return f"Keine Tabelle gefunden (Selektor: {selector or 'table'}, Index: {index})"
+        lines = []
+        for i, row in enumerate(rows):
+            line = " | ".join(row)
+            lines.append(line)
+            if i == 0:
+                lines.append("─" * min(len(line), 100))
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Tabellen-Fehler: {e}"
+
+
+def _download_file(url: str, filename: str | None = None) -> str:
+    try:
+        import urllib.request
+        if not filename:
+            filename = url.split("?")[0].rstrip("/").split("/")[-1] or "download"
+            if "." not in filename:
+                filename += ".bin"
+        out = WORKSPACE / filename
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read()
+        out.write_bytes(data)
+        size = len(data)
+        size_str = f"{size:,} B" if size < 1024 else f"{size // 1024:,} KB"
+        return f"Heruntergeladen: {out}\nGröße: {size_str}"
+    except Exception as e:
+        return f"Download-Fehler: {e}"
 
 
 def _search_web(query: str, max_results: int = 5) -> str:

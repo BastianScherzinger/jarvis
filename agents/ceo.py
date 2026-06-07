@@ -243,20 +243,29 @@ class JarvisCEO:
             # ── Finale Antwort ─────────────────────────────────────────────
             else:
                 accumulated_resp += round_text
-
-                # spoken immer NACH done — Text fertig geschrieben, dann Ton
-                spoken = _extract_spoken(round_text) or round_text.strip()
-                if spoken and len(spoken) > 3:
-                    rid = uuid.uuid4().hex[:10]
-                    _tts.prebuild(spoken, rid)
-                    log.tool_call("tts", f"→ spoken: {spoken[:60]}")
-                    yield _sse({"type": "spoken", "text": spoken, "id": rid})
-                else:
-                    log.warn(f"TTS: kein spoken (round_text={repr(round_text[:40])})")
-
                 self.history.append({"role": "assistant", "content": accumulated_resp})
                 log.response_done(elapsed=time.time() - stream_start, tokens=token_count)
+                # done ZUERST — Text sofort vollstaendig sichtbar
                 yield _sse({"type": "done", "usage": dict(_usage)})
+
+                # TTS synchron erzeugen, base64 direkt im spoken-Event —
+                # Browser braucht keinen separaten /api/speak-Fetch
+                spoken = _extract_spoken(round_text) or round_text.strip()
+                if spoken and len(spoken) > 3:
+                    try:
+                        import base64 as _b64
+                        audio_bytes, mime = _tts.speak(spoken)
+                        log.tool_call("tts", f"→ {len(audio_bytes)//1024}KB: {spoken[:50]}")
+                        yield _sse({
+                            "type":      "spoken",
+                            "text":      spoken,
+                            "audio_b64": _b64.b64encode(audio_bytes).decode("ascii"),
+                            "mime":      mime,
+                        })
+                    except Exception as e:
+                        log.warn(f"TTS fehlgeschlagen: {e}")
+                else:
+                    log.warn(f"TTS: kein Text (round_text={repr(round_text[:40])})")
                 break
 
     def reset(self):

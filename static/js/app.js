@@ -174,7 +174,11 @@ function handleEvent(data) {
 
     case "spoken":
       _ttsPending = true;
-      playSpoken(data.text, data.id || "");
+      if (data.audio_b64) {
+        playAudioBase64(data.audio_b64, data.mime || 'audio/mpeg');
+      } else {
+        playSpoken(data.text, data.id || "");
+      }
       break;
 
     case "done":
@@ -850,6 +854,75 @@ function _getTtsCtx() {
     if (c && c.state === 'suspended') c.resume().catch(() => {});
   }, { passive: true, capture: true })
 );
+
+/* Spielt base64-kodiertes Audio direkt — kein separater Fetch nötig. */
+async function playAudioBase64(b64, mime) {
+  console.log('[TTS] base64 audio empfangen:', Math.round(b64.length * 0.75 / 1024) + ' KB');
+  try {
+    const wasActive = vrActive;
+    if (wasActive) {
+      vrBusy = true;
+      if (document.getElementById('lb-label')) setVrLabel('JARVIS spricht...');
+      setVoiceDot('connected');
+    }
+    if (_ttsSource) { try { _ttsSource.stop(); } catch {} _ttsSource = null; }
+    if (_ttsAudio)  { _ttsAudio.pause(); _ttsAudio = null; }
+
+    // base64 → ArrayBuffer (synchron, kein Fetch nötig)
+    const bin = atob(b64);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const arrayBuffer = buf.buffer;
+
+    const _onEnd = () => {
+      if (wasActive) {
+        setTimeout(() => {
+          vrBusy = false;
+          if (document.getElementById('lb-label')) setVrLabel('Hoere zu...');
+          setVoiceDot('listening');
+          vrVadTick();
+        }, 400);
+      }
+    };
+
+    const ctx = _getTtsCtx();
+    if (ctx && ctx.state !== 'closed') {
+      if (ctx.state === 'suspended') await ctx.resume();
+      const audioBuf = await ctx.decodeAudioData(arrayBuffer);
+      const source   = ctx.createBufferSource();
+      source.buffer  = audioBuf;
+      source.connect(ctx.destination);
+      _ttsSource     = source;
+      _ttsPending    = false;
+      source.onended = () => { _ttsSource = null; _onEnd(); };
+      source.start();
+      console.log('[TTS] spielt via AudioContext');
+    } else {
+      // Fallback: data:-URL
+      const url   = `data:${mime};base64,${b64}`;
+      const audio = new Audio(url);
+      _ttsAudio   = audio;
+      _ttsPending = false;
+      audio.onended = () => { _ttsAudio = null; _onEnd(); };
+      audio.onerror = (e) => {
+        console.warn('[TTS] Audio-Fehler:', e);
+        _ttsAudio = null;
+        if (wasActive) { vrBusy = false; vrVadTick(); }
+      };
+      await audio.play();
+      console.log('[TTS] spielt via HTMLAudio data-URL');
+    }
+  } catch (e) {
+    _ttsPending = false;
+    console.error('[TTS] base64 CATCH:', e.name, '|', e.message);
+    if (vrActive) {
+      vrBusy = false;
+      if (document.getElementById('lb-label')) setVrLabel('Hoere zu...');
+      setVoiceDot('listening');
+      vrVadTick();
+    }
+  }
+}
 
 async function playSpoken(text, id = "") {
   if (!text || !text.trim()) return;

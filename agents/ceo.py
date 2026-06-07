@@ -87,6 +87,61 @@ Sprich den User als "Sir" an. Antworte kurz und präzise. Handle direkt.
 """
 
 
+def _ollama_token_stream(history: list[dict], system: str):
+    """Yields rohe Text-Chunks aus Ollama — Fallback wenn Claude nicht erreichbar."""
+    import os as _os
+    import urllib.request as _req
+    import urllib.error as _uerr
+
+    model = _os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
+
+    # Anthropic-Format → Ollama
+    ollama_msgs = [{"role": "system", "content": system}]
+    for m in history:
+        content = m.get("content", "")
+        if isinstance(content, list):
+            parts = []
+            for b in content:
+                if isinstance(b, dict):
+                    parts.append(b.get("text") or b.get("content") or "")
+                elif hasattr(b, "text"):
+                    parts.append(b.text)
+            content = " ".join(p for p in parts if p).strip() or "(Tool-Ergebnis)"
+        ollama_msgs.append({"role": m["role"], "content": str(content)})
+
+    payload = json.dumps({
+        "model": model,
+        "messages": ollama_msgs,
+        "stream": True,
+    }).encode("utf-8")
+
+    request = _req.Request(
+        "http://localhost:11434/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+
+    try:
+        with _req.urlopen(request, timeout=120) as resp:
+            for raw_line in resp:
+                line = raw_line.decode("utf-8").strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    chunk = obj.get("message", {}).get("content", "")
+                    if chunk:
+                        yield chunk
+                    if obj.get("done"):
+                        break
+                except json.JSONDecodeError:
+                    continue
+    except _uerr.URLError:
+        yield "\n\n*Offline: Claude und Ollama nicht erreichbar. Bitte `ollama serve` starten.*"
+    except Exception as exc:
+        yield f"\n\n*Ollama-Fehler: {exc}*"
+
+
 def _load_system_prompt() -> str:
     """Lädt CLAUDE.md als System-Prompt — kennt seine Identität und Tools."""
     claude_md = Path(__file__).parent.parent / "CLAUDE.md"
@@ -110,6 +165,36 @@ CEO_SYSTEM = _load_system_prompt()
 
 def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _jarvis_ollama_fallback(ceo, messages: list[dict], user_message: str):
+    """Generator — übernimmt mit Ollama wenn Claude ausfällt. Liefert SSE-Strings."""
+    fallback_text = ""
+    for chunk in _ollama_token_stream(messages, CEO_SYSTEM):
+        fallback_text += chunk
+        yield _sse({"type": "token", "text": chunk})
+
+    ceo.history.append({"role": "assistant", "content": fallback_text})
+    _brain_entry(
+        user_message[:40],
+        [f"Frage: {user_message[:100]}", f"Offline-Antwort (Ollama): {fallback_text[:160]}"],
+    )
+    yield _sse({"type": "done", "usage": dict(_usage)})
+
+    spoken = _extract_spoken(fallback_text) or fallback_text.strip()
+    if spoken and len(spoken) > 3:
+        try:
+            audio_bytes, mime = _tts.speak(spoken)
+            log.tool_call("tts", f"→ {len(audio_bytes)//1024}KB (Fallback): {spoken[:50]}")
+            yield _sse({
+                "type":      "spoken",
+                "text":      spoken,
+                "audio_b64": _b64.b64encode(audio_bytes).decode("ascii"),
+                "mime":      mime,
+                "final":     True,
+            })
+        except Exception as tts_e:
+            log.warn(f"TTS Fallback: {tts_e}")
 
 
 class JarvisCEO:
@@ -171,9 +256,16 @@ class JarvisCEO:
                 if _rate_retries <= 3:
                     time.sleep(wait_s)
                     continue
-                # Nach 3 Versuchen aufgeben
-                self.history.clear()
-                yield _sse({"type": "done", "usage": dict(_usage)})
+                # Nach 3 Versuchen → Ollama Fallback
+                log.warn("Rate-Limit erschöpft — Ollama Fallback")
+                yield _sse({"type": "token", "text": "\n\n*Claude Rate-Limit — lokales Modell übernimmt.*\n\n"})
+                yield from _jarvis_ollama_fallback(self, messages, user_message)
+                break
+
+            except (anthropic.APIConnectionError, anthropic.AuthenticationError) as e:
+                log.warn(f"Claude nicht erreichbar ({type(e).__name__}) — Ollama Fallback")
+                yield _sse({"type": "token", "text": "*[Claude offline — lokales Modell aktiv]*\n\n"})
+                yield from _jarvis_ollama_fallback(self, messages, user_message)
                 break
 
             except anthropic.BadRequestError as e:
@@ -186,10 +278,15 @@ class JarvisCEO:
 
             except Exception as e:
                 log.warn(f"API-Fehler: {type(e).__name__}: {e}")
-                self.history.clear()
-                yield _sse({"type": "token",
-                            "text": f"\n\n*Fehler: {e}*"})
-                yield _sse({"type": "done", "usage": dict(_usage)})
+                err_str = str(e).lower()
+                if any(kw in err_str for kw in ("connection", "timeout", "network", "ssl", "resolve", "unreachable")):
+                    log.warn("Verbindungsfehler — Ollama Fallback")
+                    yield _sse({"type": "token", "text": "*[Verbindungsfehler — lokales Modell]*\n\n"})
+                    yield from _jarvis_ollama_fallback(self, messages, user_message)
+                else:
+                    self.history.clear()
+                    yield _sse({"type": "token", "text": f"\n\n*Fehler: {e}*"})
+                    yield _sse({"type": "done", "usage": dict(_usage)})
                 break
 
             # ── Tool-calls aus final_msg.content (autoritativ) ────────────

@@ -7,9 +7,11 @@ import subprocess
 import tempfile
 import os
 import logging
+import socket
+import time as _time
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
-from agents.ceo import JarvisCEO
+from agents.ceo import JarvisCEO, get_usage
 from agents.tools import WORKSPACE_TASKS, WORKSPACE_RESULTS
 import jarvis_log as log
 import tts
@@ -265,6 +267,33 @@ def api_speak():
     except Exception as e:
         log.err(f"TTS: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+_net_cache: dict = {"ts": 0.0, "internet": False, "claude": False}
+_NET_TTL = 30.0
+
+
+def _tcp_reachable(host: str, port: int = 443, timeout: float = 3.0) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+@app.route("/api/status")
+def api_status():
+    now = _time.time()
+    if now - _net_cache["ts"] > _NET_TTL:
+        internet = _tcp_reachable("1.1.1.1", 443)
+        _net_cache["internet"] = internet
+        _net_cache["claude"]   = _tcp_reachable("api.anthropic.com", 443) if internet else False
+        _net_cache["ts"]       = now
+    return jsonify({
+        "internet": _net_cache["internet"],
+        "claude":   _net_cache["claude"],
+        "tokens":   get_usage(),
+    })
 
 
 if __name__ == "__main__":

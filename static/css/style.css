@@ -221,6 +221,37 @@ body {
 .voice-dot.listening    { background: var(--cyan);  box-shadow: 0 0 8px var(--cyan); animation: dot-pulse 0.5s ease-in-out infinite; }
 .voice-label { font-size: 0.65rem; color: var(--text-2); letter-spacing: 0.1em; font-family: var(--font-hud); }
 
+/* Connectivity group */
+.conn-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0,212,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 12px;
+}
+.conn-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.conn-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.conn-dot.online  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.conn-dot.offline { background: var(--danger); box-shadow: 0 0 6px var(--danger); animation: dot-pulse 1.5s ease-in-out infinite; }
+.conn-key {
+  font-size: 0.52rem;
+  color: var(--text-3);
+  letter-spacing: 0.15em;
+  font-family: var(--font-hud);
+}
+
 /* HUD buttons */
 .hud-btn {
   font-family: var(--font-hud);

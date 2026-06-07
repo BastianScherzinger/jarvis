@@ -794,6 +794,33 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove("show"), 2500);
 }
 
+/* ═══════════════════════ STATUS POLLING ════════════════════════
+ * Pollt /api/status alle 15s: Internet, Claude, Token-Usage.
+ * ════════════════════════════════════════════════════════════════ */
+function formatTokens(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000)     return (n / 1_000).toFixed(1) + "K";
+  return n > 0 ? String(n) : "—";
+}
+
+async function pollStatus() {
+  try {
+    const data = await fetch("/api/status").then(r => r.json());
+    const dotNet    = document.getElementById("dot-internet");
+    const dotClaude = document.getElementById("dot-claude");
+    const tokEl     = document.getElementById("m-tokens");
+    if (dotNet)    dotNet.className    = "conn-dot " + (data.internet ? "online" : "offline");
+    if (dotClaude) dotClaude.className = "conn-dot " + (data.claude   ? "online" : "offline");
+    if (tokEl && data.tokens) {
+      const total = (data.tokens.input || 0) + (data.tokens.output || 0);
+      tokEl.textContent = formatTokens(total);
+    }
+  } catch { /* ignore */ }
+}
+
+pollStatus();
+setInterval(pollStatus, 15_000);
+
 /* ═══════════════════════ JARVIS STIMME (TTS) ════════════════════
  * Spielt Audio über AudioContext (bypasses Chrome autoplay-Sperre).
  * vrBusy=true während JARVIS spricht — Mic bleibt stumm.

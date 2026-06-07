@@ -54,6 +54,12 @@ def _extract_spoken(text: str, max_chars: int = 200) -> str:
     return result.strip() or text[:max_chars]
 
 
+_usage: dict = {"input": 0, "output": 0, "requests": 0}
+
+def get_usage() -> dict:
+    return dict(_usage)
+
+
 CEO_MODEL  = "claude-sonnet-4-6"
 CEO_SYSTEM = """\
 Du bist JARVIS, CEO eines Python Expert Agent Teams. Du sprichst direkt mit dem User.
@@ -158,6 +164,10 @@ class JarvisCEO:
                             current_tool = None
 
                 final_msg = s.get_final_message()
+                if hasattr(final_msg, "usage") and final_msg.usage:
+                    _usage["input"]    += final_msg.usage.input_tokens or 0
+                    _usage["output"]   += final_msg.usage.output_tokens or 0
+                    _usage["requests"] += 1
 
             # ── Tool-use Round ────────────────────────────────────────────
             if has_tool_use:

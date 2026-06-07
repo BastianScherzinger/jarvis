@@ -613,7 +613,9 @@ async function vrStart() {
     return;
   }
 
-  vrAudioCtx  = new AudioContext();
+  if (!vrAudioCtx || vrAudioCtx.state === 'closed') {
+    vrAudioCtx = new AudioContext();
+  }
   await vrAudioCtx.resume();   // AudioContext aus Suspension holen
   vrAnalyser  = vrAudioCtx.createAnalyser();
   vrAnalyser.fftSize = 1024;
@@ -774,8 +776,9 @@ function vrStop() {
   if (vrAnimFrame) { cancelAnimationFrame(vrAnimFrame); vrAnimFrame = null; }
   vrChunkAbort();
   try { vrStream?.getTracks().forEach(t => t.stop()); } catch {}
-  try { vrAudioCtx?.close(); } catch {}
-  vrStream = vrAudioCtx = vrAnalyser = null;
+  // vrAudioCtx bleibt offen — TTS-Wiedergabe funktioniert weiterhin
+  try { if (vrAnalyser) vrAnalyser.disconnect(); } catch {}
+  vrStream = vrAnalyser = null;
   vrVadState = 'idle'; vrBusy = false;
   setListeningUI(false);
   setVrLabel('Hoere zu...');

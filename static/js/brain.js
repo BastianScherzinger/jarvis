@@ -170,7 +170,10 @@
   let dragPrev   = { x: 0, y: 0 };
   let kVel       = { x: 0, y: 0 };
   let autoRotate = true;
-  let hoveredNode = null;
+  let hoveredNode  = null;
+  let pinnedNode   = null;
+  let kPinLabel    = null;
+  let _dragMoved   = false;
   let ptA, ptB, ptC;
   const RC     = new THREE.Raycaster();
   const mouse2 = new THREE.Vector2(-99, -99);
@@ -262,6 +265,28 @@
     });
     document.body.appendChild(kTooltip);
 
+    /* Pin-Label — nach Klick stehen bleiben */
+    kPinLabel = document.createElement('div');
+    Object.assign(kPinLabel.style, {
+      position:      'fixed',
+      background:    'rgba(0,4,14,0.97)',
+      color:         '#00e5a0',
+      border:        '1px solid rgba(0,212,255,0.65)',
+      padding:       '5px 16px 7px',
+      borderRadius:  '3px',
+      fontSize:      '11px',
+      fontFamily:    '"Share Tech Mono",monospace',
+      letterSpacing: '0.12em',
+      textTransform: 'uppercase',
+      pointerEvents: 'none',
+      opacity:       '0',
+      transition:    'opacity 0.15s',
+      whiteSpace:    'nowrap',
+      zIndex:        '10000',
+      boxShadow:     '0 0 20px rgba(0,212,255,0.35), 0 0 4px rgba(0,229,160,0.2)',
+    });
+    document.body.appendChild(kPinLabel);
+
     /* ── Fetch real files ─────────────────────────────────────────*/
     fetch('/api/knowledge')
       .then(r => r.json())
@@ -270,7 +295,7 @@
 
     /* ── Drag rotation ──────────────────────────────────────────── */
     canvas.addEventListener('mousedown', e => {
-      isDragging = true; autoRotate = false;
+      isDragging = true; autoRotate = false; _dragMoved = false;
       dragPrev = { x: e.clientX, y: e.clientY };
       kVel = { x: 0, y: 0 };
       canvas.style.cursor = 'grabbing';
@@ -288,6 +313,7 @@
       mouse2.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
       mouse2.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
       if (isDragging) {
+        _dragMoved = true;
         kVel.y = (e.clientX - dragPrev.x) * 0.011;
         kVel.x = (e.clientY - dragPrev.y) * 0.011;
         kGroup.rotation.y += kVel.y;
@@ -299,6 +325,39 @@
       mouse2.set(-99, -99);
       kTooltip.style.opacity = '0';
       if (hoveredNode) { hoveredNode.mesh.scale.setScalar(1); hoveredNode = null; }
+    });
+
+    /* Klick → Node-Name pinnen / lösen */
+    canvas.addEventListener('click', e => {
+      if (_dragMoved) return;
+      const rect = canvas.getBoundingClientRect();
+      const cv = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width)  * 2 - 1,
+        -((e.clientY - rect.top)  / rect.height) * 2 + 1,
+      );
+      RC.setFromCamera(cv, kCam);
+      const hits = RC.intersectObjects(kNodes.map(n => n.hitbox), false);
+      if (hits.length) {
+        const clicked = kNodes.find(n => n.hitbox === hits[0].object);
+        if (clicked) {
+          if (pinnedNode === clicked) {
+            pinnedNode = null;
+            kPinLabel.style.opacity = '0';
+          } else {
+            pinnedNode = clicked;
+            kPinLabel.textContent       = clicked.label;
+            kPinLabel.style.color       = clicked.type === 'memory' ? '#fbbf24'
+                                        : clicked.type === 'h2' || clicked.type === 'section' ? '#60a5fa'
+                                        : '#00e5a0';
+            kPinLabel.style.borderColor = clicked.type === 'memory'
+              ? 'rgba(251,191,36,0.65)' : 'rgba(0,212,255,0.65)';
+            kPinLabel.style.opacity = '1';
+          }
+          return;
+        }
+      }
+      pinnedNode = null;
+      kPinLabel.style.opacity = '0';
     });
 
     /* ── Animation ──────────────────────────────────────────────── */
@@ -357,6 +416,17 @@
           if (hoveredNode) { hoveredNode.mesh.scale.setScalar(1); hoveredNode = null; }
           kTooltip.style.opacity = '0';
         }
+      }
+
+      /* Pin-Label position mitführen während Sphere dreht */
+      if (pinnedNode && kPinLabel) {
+        pinnedNode.hitbox.getWorldPosition(tmpVec);
+        tmpVec.project(kCam);
+        const rectP = canvas.getBoundingClientRect();
+        const sx = rectP.left + (tmpVec.x + 1) / 2 * rectP.width;
+        const sy = rectP.top  + (1 - tmpVec.y) / 2 * rectP.height;
+        kPinLabel.style.left = (sx + 14) + 'px';
+        kPinLabel.style.top  = (sy - 24) + 'px';
       }
 
       /* Pulse non-hovered nodes */

@@ -122,7 +122,12 @@ async function sendMessage() {
     disableSend(false);
     setStatus("idle", "Bereit");
     setLiveDot(false);
-    if (vrActive && !vrBusy) setVoiceLabel("Hoere zu...");
+    // Mic nur freigeben wenn kein TTS mehr aussteht
+    if (vrActive && !_ttsPending && !_ttsSource && !_ttsAudio) {
+      vrBusy = false;
+      setVoiceLabel("Hoere zu...");
+      vrVadTick();
+    }
     document.getElementById("msg-input").focus();
   }
 }
@@ -168,7 +173,7 @@ function handleEvent(data) {
       break;
 
     case "spoken":
-      // Kommt VOR den Tokens — Audio sofort abrufen waehrend Text noch streamt
+      _ttsPending = true;
       playSpoken(data.text, data.id || "");
       break;
 
@@ -702,7 +707,13 @@ async function vrChunkStop() {
           const inp = document.getElementById('msg-input');
           inp.value = txt;
           autoResize(inp);
+          // Mic bleibt aus (vrBusy=true) bis JARVIS fertig gesprochen hat
           sendMessage();
+          vrVadState = 'waiting';
+          if (vrActive) setVrLabel('Warte...');
+          const vuElW = document.getElementById('lb-interim');
+          if (vuElW) vuElW.textContent = '';
+          return;   // frühes Return — vrBusy NICHT zurücksetzen
         } else {
           console.log('[VOICE] Streaming aktiv, Eingabe verworfen:', txt);
         }
@@ -784,17 +795,36 @@ function showToast(msg) {
 }
 
 /* ═══════════════════════ JARVIS STIMME (TTS) ════════════════════
- * Ruft /api/speak auf, spielt MP3 ab.
- * VAD wird während der Wiedergabe pausiert (vrBusy=true).
+ * Spielt Audio über AudioContext (bypasses Chrome autoplay-Sperre).
+ * vrBusy=true während JARVIS spricht — Mic bleibt stumm.
  * ════════════════════════════════════════════════════════════════ */
-let _ttsAudio = null;
+let _ttsAudio   = null;   // HTMLAudioElement (Fallback)
+let _ttsSource  = null;   // AudioBufferSourceNode (Hauptpfad)
+let _ttsCtx     = null;   // eigener AudioContext (wenn kein vrAudioCtx)
+let _ttsPending = false;  // true zwischen "spoken"-Event und Audio-Start
+
+/* Gibt einen entsperrten AudioContext zurück.
+ * Bevorzugt vrAudioCtx (bereits durch Mic-Klick entsperrt). */
+function _getTtsCtx() {
+  if (vrAudioCtx && vrAudioCtx.state !== 'closed') return vrAudioCtx;
+  if (!_ttsCtx || _ttsCtx.state === 'closed') {
+    try { _ttsCtx = new AudioContext(); } catch (e) { return null; }
+  }
+  return _ttsCtx;
+}
+// Context bei jedem User-Gesture entsperren (Enter, Klick, Touch)
+['click', 'keydown', 'touchend'].forEach(ev =>
+  document.addEventListener(ev, () => {
+    const c = _getTtsCtx();
+    if (c && c.state === 'suspended') c.resume().catch(() => {});
+  }, { passive: true, capture: true })
+);
 
 async function playSpoken(text, id = "") {
   if (!text || !text.trim()) return;
-  console.log('[TTS] playSpoken aufgerufen:', text.slice(0, 60), 'id:', id);
+  console.log('[TTS] playSpoken:', text.slice(0, 60));
 
   try {
-    // VAD stoppen — INNERHALB try damit Exceptions gefangen werden
     const wasActive = vrActive;
     if (wasActive) {
       vrBusy = true;
@@ -802,13 +832,16 @@ async function playSpoken(text, id = "") {
       setVoiceDot('connected');
     }
 
-    if (_ttsAudio) { _ttsAudio.pause(); _ttsAudio = null; }
+    // Laufendes Audio stoppen
+    if (_ttsSource) { try { _ttsSource.stop(); } catch {} _ttsSource = null; }
+    if (_ttsAudio)  { _ttsAudio.pause(); _ttsAudio = null; }
 
     const resp = await fetch('/api/speak', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ text: text.trim(), id }),
     });
+    _ttsPending = false;  // Fetch abgeschlossen — Audio startet gleich
 
     if (!resp.ok) {
       console.warn('[TTS] Server-Fehler:', resp.status);
@@ -816,14 +849,10 @@ async function playSpoken(text, id = "") {
       return;
     }
 
-    const blob  = await resp.blob();
-    const url   = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    _ttsAudio   = audio;
+    const arrayBuffer = await resp.arrayBuffer();
+    const ctx = _getTtsCtx();
 
-    audio.onended = () => {
-      URL.revokeObjectURL(url);
-      _ttsAudio = null;
+    const _onEnd = () => {
       if (wasActive) {
         setTimeout(() => {
           vrBusy = false;
@@ -834,18 +863,36 @@ async function playSpoken(text, id = "") {
       }
     };
 
-    audio.onerror = (e) => {
-      console.warn('[TTS] Audio-Fehler:', e);
-      URL.revokeObjectURL(url);
-      _ttsAudio = null;
-      if (wasActive) { vrBusy = false; vrVadTick(); }
-    };
-
-    await audio.play();
-    console.log('[TTS] spielt:', text.slice(0, 60));
+    if (ctx && ctx.state !== 'closed') {
+      // AudioContext-Pfad: kein Autoplay-Problem, funktioniert immer
+      if (ctx.state === 'suspended') await ctx.resume();
+      const audioBuf = await ctx.decodeAudioData(arrayBuffer);
+      const source   = ctx.createBufferSource();
+      source.buffer  = audioBuf;
+      source.connect(ctx.destination);
+      _ttsSource      = source;
+      source.onended  = () => { _ttsSource = null; _onEnd(); };
+      source.start();
+      console.log('[TTS] spielt via AudioContext');
+    } else {
+      // Fallback: HTMLAudioElement (braucht frischen User-Gesture)
+      const blob  = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+      const url   = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      _ttsAudio   = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); _ttsAudio = null; _onEnd(); };
+      audio.onerror = (e) => {
+        console.warn('[TTS] Audio-Fehler:', e);
+        URL.revokeObjectURL(url); _ttsAudio = null;
+        if (wasActive) { vrBusy = false; vrVadTick(); }
+      };
+      await audio.play();
+      console.log('[TTS] spielt via HTMLAudio');
+    }
 
   } catch (e) {
-    console.warn('[TTS] Fehler in playSpoken:', e);
+    _ttsPending = false;
+    console.warn('[TTS] Fehler:', e);
     if (vrActive) { vrBusy = false; vrVadTick(); }
   }
 }

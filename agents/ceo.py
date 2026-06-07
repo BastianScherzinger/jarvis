@@ -256,7 +256,7 @@ class JarvisCEO:
 
                 self.history.append({"role": "assistant", "content": accumulated_resp})
                 log.response_done(elapsed=time.time() - stream_start, tokens=token_count)
-                yield _sse({"type": "done"})
+                yield _sse({"type": "done", "usage": dict(_usage)})
                 break
 
     def reset(self):

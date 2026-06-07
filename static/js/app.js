@@ -180,6 +180,7 @@ function handleEvent(data) {
     case "done":
       finalizeMessage();
       refreshWorkspace();
+      if (data.usage) updateTokenDisplay(data.usage);
       break;
   }
 }
@@ -803,18 +804,21 @@ function formatTokens(n) {
   return n > 0 ? String(n) : "—";
 }
 
+function updateTokenDisplay(usage) {
+  const tokEl = document.getElementById("m-tokens");
+  if (!tokEl) return;
+  const total = (usage.input || 0) + (usage.output || 0);
+  tokEl.textContent = formatTokens(total);
+}
+
 async function pollStatus() {
   try {
     const data = await fetch("/api/status").then(r => r.json());
     const dotNet    = document.getElementById("dot-internet");
     const dotClaude = document.getElementById("dot-claude");
-    const tokEl     = document.getElementById("m-tokens");
     if (dotNet)    dotNet.className    = "conn-dot " + (data.internet ? "online" : "offline");
     if (dotClaude) dotClaude.className = "conn-dot " + (data.claude   ? "online" : "offline");
-    if (tokEl && data.tokens) {
-      const total = (data.tokens.input || 0) + (data.tokens.output || 0);
-      tokEl.textContent = formatTokens(total);
-    }
+    if (data.tokens) updateTokenDisplay(data.tokens);
   } catch { /* ignore */ }
 }
 

@@ -414,13 +414,18 @@ def _search_files(pattern: str, path: str, content_search: str | None = None) ->
 
 # ── Browser-Tools (Playwright) ────────────────────────────────────
 
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+       "AppleWebKit/537.36 (KHTML, like Gecko) "
+       "Chrome/124.0.0.0 Safari/537.36")
+
+
 def _get_page():
     """Gibt die aktuelle Playwright-Page zurück, erstellt sie bei Bedarf."""
     global _pw, _browser, _page
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        raise RuntimeError("playwright nicht installiert. Führe aus: pip install playwright && playwright install chromium")
+        raise RuntimeError("playwright nicht installiert: pip install playwright && playwright install chromium")
 
     if _browser is None or not _browser.is_connected():
         if _pw is not None:
@@ -429,18 +434,39 @@ def _get_page():
         import os
         headless = os.environ.get("JARVIS_BROWSER_HEADLESS", "false").lower() != "false"
         _pw      = sync_playwright().start()
-        _browser = _pw.chromium.launch(headless=headless)
-        _page    = _browser.new_page()
-        _page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        _browser = _pw.chromium.launch(
+            headless=headless,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+        )
+        ctx   = _browser.new_context(user_agent=_UA, locale="de-DE")
+        _page = ctx.new_page()
 
     if _page is None or _page.is_closed():
-        _page = _browser.new_page()
-        _page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        ctx   = _browser.new_context(user_agent=_UA, locale="de-DE")
+        _page = ctx.new_page()
 
     return _page
 
 
+def _http_get(url: str, max_chars: int = 8000) -> str:
+    """Einfacher HTTP-GET via urllib — kein Playwright, kein Bot-Risiko."""
+    import urllib.request, html as _html, re
+    req = urllib.request.Request(url, headers={
+        "User-Agent": _UA,
+        "Accept":     "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "de,en;q=0.5",
+    })
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+    raw = re.sub(r"(?s)<(script|style|noscript|nav|footer|header|aside)[^>]*>.*?</\1>", " ", raw)
+    raw = re.sub(r"<[^>]+>", " ", raw)
+    raw = _html.unescape(raw)
+    raw = re.sub(r"\s+", " ", raw).strip()
+    return raw[:max_chars] + ("\n[...gekürzt...]" if len(raw) > max_chars else "")
+
+
 def _browse_web(url: str, selector: str | None = None, wait_for: str | None = None) -> str:
+    # Playwright-Versuch
     try:
         page = _get_page()
         page.goto(url, timeout=20_000, wait_until="domcontentloaded")
@@ -458,21 +484,26 @@ def _browse_web(url: str, selector: str | None = None, wait_for: str | None = No
             except:
                 text = page.inner_text("body")
         else:
-            # Hauptinhalt extrahieren (body ohne script/style)
             text = page.evaluate("""() => {
-                const remove = ['script','style','noscript','nav','footer','header','aside'];
-                remove.forEach(tag => document.querySelectorAll(tag).forEach(e => e.remove()));
+                ['script','style','noscript','nav','footer','header','aside']
+                    .forEach(t => document.querySelectorAll(t).forEach(e => e.remove()));
                 return document.body ? document.body.innerText : '';
             }""")
 
-        # Text kürzen
-        text = " ".join(text.split())   # Whitespace normalisieren
+        text = " ".join(text.split())
         if len(text) > 8000:
-            text = text[:8000] + "\n\n[... Inhalt gekürzt ...]"
-
+            text = text[:8000] + "\n[...gekürzt...]"
+        if len(text) < 100:
+            raise RuntimeError("Zu wenig Inhalt — Bot-Schutz?")
         return f"TITEL: {title}\nURL: {url}\n\n{text}"
-    except Exception as e:
-        return f"Browser-Fehler: {e}"
+
+    except Exception as pw_err:
+        # Fallback: einfacher HTTP-GET (funktioniert für Wikipedia, Docs, usw.)
+        try:
+            text = _http_get(url)
+            return f"URL: {url}\n\n{text}"
+        except Exception as http_err:
+            return f"Browser-Fehler: {pw_err} | HTTP-Fallback: {http_err}"
 
 
 def _web_click(selector: str) -> str:
@@ -652,42 +683,77 @@ def _download_file(url: str, filename: str | None = None) -> str:
 
 
 def _search_web(query: str, max_results: int = 5) -> str:
-    """Sucht via DuckDuckGo und gibt strukturierte Ergebnisse zurück."""
+    """Sucht via DuckDuckGo API (JSON, kein Playwright nötig)."""
+    import urllib.parse, urllib.request, json as _json
+
+    # DuckDuckGo Instant Answer API
+    api_url = (
+        "https://api.duckduckgo.com/?q="
+        + urllib.parse.quote(query)
+        + "&format=json&no_html=1&skip_disambig=1"
+    )
     try:
-        import urllib.parse
-        search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-        page = _get_page()
-        page.goto(search_url, timeout=20_000, wait_until="domcontentloaded")
-
-        results = page.evaluate("""(max) => {
-            const items = [];
-            document.querySelectorAll('.result').forEach((el, i) => {
-                if (i >= max) return;
-                const titleEl   = el.querySelector('.result__title a');
-                const snippetEl = el.querySelector('.result__snippet');
-                const urlEl     = el.querySelector('.result__url');
-                if (!titleEl) return;
-                items.push({
-                    title:   titleEl.innerText.trim(),
-                    url:     urlEl   ? urlEl.innerText.trim()   : '',
-                    snippet: snippetEl ? snippetEl.innerText.trim() : '',
-                });
-            });
-            return items;
-        }""", min(max_results, 10))
-
-        if not results:
-            return "Keine Ergebnisse gefunden."
+        req = urllib.request.Request(api_url, headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
 
         lines = [f"Suchergebnisse für: {query}\n"]
-        for i, r in enumerate(results, 1):
-            lines.append(f"{i}. {r['title']}")
-            if r['url']:     lines.append(f"   {r['url']}")
-            if r['snippet']: lines.append(f"   {r['snippet']}")
+        count = 0
+
+        # Abstract (direkte Antwort)
+        if data.get("AbstractText"):
+            lines.append(f"► {data['AbstractText']}")
+            if data.get("AbstractURL"):
+                lines.append(f"   Quelle: {data['AbstractURL']}")
             lines.append("")
+            count += 1
+
+        # Related Topics
+        for item in data.get("RelatedTopics", []):
+            if count >= max_results:
+                break
+            if isinstance(item, dict) and item.get("Text"):
+                lines.append(f"{count}. {item['Text'][:200]}")
+                if item.get("FirstURL"):
+                    lines.append(f"   {item['FirstURL']}")
+                lines.append("")
+                count += 1
+
+        if count == 0:
+            # Fallback: Playwright-Suche
+            raise RuntimeError("API leer")
+
         return "\n".join(lines)
-    except Exception as e:
-        return f"Suche-Fehler: {e}"
+
+    except Exception:
+        # Fallback: Playwright mit DuckDuckGo HTML
+        try:
+            page = _get_page()
+            search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+            page.goto(search_url, timeout=20_000, wait_until="domcontentloaded")
+            results = page.evaluate("""(max) => {
+                const items = [];
+                document.querySelectorAll('.result').forEach((el, i) => {
+                    if (i >= max) return;
+                    const t = el.querySelector('.result__title a');
+                    const s = el.querySelector('.result__snippet');
+                    const u = el.querySelector('.result__url');
+                    if (!t) return;
+                    items.push({ title: t.innerText, url: u ? u.innerText : '', snippet: s ? s.innerText : '' });
+                });
+                return items;
+            }""", min(max_results, 10))
+            if not results:
+                return "Keine Ergebnisse gefunden."
+            lines = [f"Suchergebnisse für: {query}\n"]
+            for i, r in enumerate(results, 1):
+                lines.append(f"{i}. {r['title']}")
+                if r['url']:     lines.append(f"   {r['url']}")
+                if r['snippet']: lines.append(f"   {r['snippet']}")
+                lines.append("")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Suche-Fehler: {e}"
 
 
 def _delegate(agent_key: str, task: str) -> str:

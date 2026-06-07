@@ -47,6 +47,19 @@ import speech_recognition as sr
 _recognizer = sr.Recognizer()
 
 
+def _get_ffmpeg() -> str:
+    """Gibt ffmpeg-Pfad zurueck: erst System, dann imageio-ffmpeg-Bundle."""
+    import shutil
+    sys_ff = shutil.which("ffmpeg")
+    if sys_ff:
+        return sys_ff
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        raise FileNotFoundError("ffmpeg nicht gefunden — pip install imageio-ffmpeg")
+
+
 def _webm_to_wav(webm_bytes: bytes, rate: int = 16000) -> bytes:
     with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_in:
         tmp_in.write(webm_bytes)
@@ -54,7 +67,7 @@ def _webm_to_wav(webm_bytes: bytes, rate: int = 16000) -> bytes:
     tmp_out_path = tmp_in_path.replace(".webm", ".wav")
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-i", tmp_in_path,
+            [_get_ffmpeg(), "-y", "-i", tmp_in_path,
              "-ar", str(rate), "-ac", "1", "-f", "wav", tmp_out_path],
             check=True, capture_output=True,
         )

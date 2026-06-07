@@ -80,6 +80,7 @@ def run() -> bool:
         ("edge_tts",           "edge-tts"),
         ("playwright",         "playwright"),
         ("faster_whisper",     "faster-whisper"),
+        ("imageio_ffmpeg",     "imageio-ffmpeg"),
     ]
 
     if req_file.exists():

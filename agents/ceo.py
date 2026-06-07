@@ -148,14 +148,16 @@ class JarvisCEO:
                             token_count += 1
                             yield _sse({"type": "token", "text": chunk})
 
-                            # TTS-Prebuild starten sobald erster Satz komplett ist
-                            if not tts_started and not has_tool_use and len(round_text) > 80:
+                            # spoken-Event SOFORT senden sobald erster Satz da ist —
+                            # Browser startet Fetch waehrend Tokens noch kommen
+                            if not tts_started and not has_tool_use and len(round_text) > 50:
                                 candidate = _extract_spoken(round_text)
-                                if candidate and len(candidate) > 20:
+                                if candidate and len(candidate) > 8:
                                     tts_rid    = uuid.uuid4().hex[:10]
                                     tts_spoken = candidate
                                     _tts.prebuild(candidate, tts_rid)
                                     tts_started = True
+                                    yield _sse({"type": "spoken", "text": candidate, "id": tts_rid})
 
                         elif delta.type == "input_json_delta" and current_tool:
                             current_tool["input_str"] += delta.partial_json
@@ -246,12 +248,10 @@ class JarvisCEO:
             else:
                 accumulated_resp += round_text
 
-                # spoken-Event: TTS wurde schon waehrend des Streamens gestartet
-                if tts_started:
-                    yield _sse({"type": "spoken", "text": tts_spoken, "id": tts_rid})
-                else:
-                    spoken = _extract_spoken(round_text)
-                    if spoken:
+                # Fallback: Antwort war kuerzer als 50 Zeichen, spoken noch nicht gesendet
+                if not tts_started:
+                    spoken = _extract_spoken(round_text) or round_text.strip()
+                    if spoken and len(spoken) > 3:
                         rid = uuid.uuid4().hex[:10]
                         _tts.prebuild(spoken, rid)
                         yield _sse({"type": "spoken", "text": spoken, "id": rid})

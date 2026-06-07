@@ -247,8 +247,11 @@ def api_speak():
         cached = tts.get_cached(rid) if rid else None
         if cached:
             audio_bytes, mime = cached
+            log.tool_call("tts", f"cache-hit  {len(audio_bytes)//1024} KB")
         else:
+            log.tool_call("tts", text[:60])
             audio_bytes, mime = tts.speak(text)
+            log.tool_done("tts", len(audio_bytes))
 
         return Response(
             audio_bytes,
@@ -256,7 +259,7 @@ def api_speak():
             headers={"Cache-Control": "no-store"},
         )
     except RuntimeError as e:
-        log.warn(f"TTS: {e}")
+        log.warn(f"TTS fehlgeschlagen: {e}")
         return jsonify({"error": str(e)}), 503
     except Exception as e:
         log.err(f"TTS: {e}")

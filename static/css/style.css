@@ -40,17 +40,24 @@
 /* ── Reset ──────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { font-size: 13px; }
+html {
+  font-size: 13px;
+  height: 100%;
+  overflow: hidden;
+}
 
 body {
   font-family: var(--font-data);
-  background: #000;         /* Fallback wenn Bild noch lädt */
+  background: #000;
   color: var(--text);
-  height: 100vh;
+  height: 100%;
+  max-height: 100vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   cursor: default;
+  position: fixed;   /* verhindert jegliches Body-Scrolling */
+  inset: 0;
 }
 
 ::-webkit-scrollbar { width: 3px; }
@@ -321,6 +328,7 @@ body {
   gap: 0;
   overflow: hidden;
   min-height: 0;
+  contain: layout style;   /* verhindert dass Panel-Inhalte die Grid-Struktur verschieben */
 }
 
 /* ── Panels — Glassmorphisch über Iron-Man-Labor ─────────────────── */
@@ -393,23 +401,23 @@ body {
 }
 
 /* ── Brain Panel ────────────────────────────────────────────────── */
-.panel-left { padding: 0; overflow: visible; }
+.panel-left { padding: 0; overflow: hidden; }
 
 .brain-wrap {
   position: relative;
   margin: 6px auto;
-  width: calc(var(--left-w) - 8px);
-  height: calc(var(--left-w) - 8px);
+  width: calc(var(--left-w) - 24px);   /* 296px — sicher innerhalb 320px Panel */
+  height: calc(var(--left-w) - 24px);
   flex-shrink: 0;
   cursor: grab;
+  /* transform bleibt im Panel-Clip — kein Layout-Shift */
   transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.45s ease;
-  z-index: 1;
+  will-change: transform, filter;
 }
 .brain-wrap:active { cursor: grabbing; }
 .brain-wrap:hover {
-  transform: scale(1.18);
+  transform: scale(1.20);
   filter: drop-shadow(0 0 28px var(--cyan)) drop-shadow(0 0 10px rgba(0, 229, 160, 0.3));
-  z-index: 20;
 }
 #brain-canvas {
   width: 100%;
@@ -566,7 +574,12 @@ body {
 }
 
 /* ── Chat / Center Panel ────────────────────────────────────────── */
-.panel-center { border-right: 1px solid var(--border-hi); border-left: 1px solid var(--border-hi); }
+.panel-center {
+  border-right: 1px solid var(--border-hi);
+  border-left: 1px solid var(--border-hi);
+  min-width: 0;        /* verhindert dass langer Text die Spalte aufbläst */
+  flex-shrink: 1;
+}
 
 /* Welcome */
 .welcome {

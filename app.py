@@ -2,11 +2,11 @@ import io
 import wave
 import struct
 import math
+import threading
 import subprocess
 import tempfile
 import os
 import logging
-import speech_recognition as sr
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from agents.ceo import JarvisCEO
@@ -14,13 +14,36 @@ from agents.tools import WORKSPACE_TASKS, WORKSPACE_RESULTS
 import jarvis_log as log
 import tts
 
-# Flask-eigene Logs auf Minimum reduzieren
+# Flask-Logs auf Minimum
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 log.banner()
 
-app      = Flask(__name__)
-jarvis   = JarvisCEO()
+app     = Flask(__name__)
+jarvis  = JarvisCEO()
+
+# ── STT: faster-whisper (lokal) mit Google-Fallback ────────────────
+_whisper       = None
+_whisper_ready = False
+
+def _load_whisper() -> None:
+    global _whisper, _whisper_ready
+    try:
+        import os as _os
+        model_size = _os.getenv("JARVIS_STT_MODEL", "base")
+        from faster_whisper import WhisperModel
+        _whisper = WhisperModel(model_size, device="cpu", compute_type="int8")
+        _whisper_ready = True
+    except ImportError:
+        pass        # kein faster-whisper installiert → Google-Fallback
+    except Exception as e:
+        log.warn(f"Whisper-Ladefehler: {e}")
+
+# Whisper im Hintergrund laden — blockiert den Start nicht
+threading.Thread(target=_load_whisper, daemon=True).start()
+
+# Google-Fallback
+import speech_recognition as sr
 _recognizer = sr.Recognizer()
 
 
@@ -32,18 +55,38 @@ def _webm_to_wav(webm_bytes: bytes, rate: int = 16000) -> bytes:
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-i", tmp_in_path,
-             "-ar", str(rate), "-ac", "1",
-             "-f", "wav", tmp_out_path],
+             "-ar", str(rate), "-ac", "1", "-f", "wav", tmp_out_path],
             check=True, capture_output=True,
         )
         with open(tmp_out_path, "rb") as f:
             return f.read()
     finally:
         for p in (tmp_in_path, tmp_out_path):
-            try:
-                os.unlink(p)
-            except OSError:
-                pass
+            try: os.unlink(p)
+            except OSError: pass
+
+
+def _transcribe_whisper(buf: io.BytesIO, lang: str) -> str:
+    """Lokale Transkription via faster-whisper (kein Netz)."""
+    import numpy as np
+    buf.seek(0)
+    with wave.open(buf, "rb") as wf:
+        raw = wf.readframes(wf.getnframes())
+    samples = (
+        __import__("numpy")
+        .frombuffer(raw, dtype=__import__("numpy").int16)
+        .astype(__import__("numpy").float32) / 32768.0
+    )
+    lang_code = lang.split("-")[0]
+    segments, _ = _whisper.transcribe(
+        samples,
+        language=lang_code,
+        beam_size=1,
+        best_of=1,
+        temperature=0.0,
+        vad_filter=True,
+    )
+    return " ".join(s.text.strip() for s in segments).strip()
 
 
 @app.route("/")
@@ -71,26 +114,27 @@ def api_chat():
 
 @app.route("/api/voice/transcribe", methods=["POST"])
 def voice_transcribe():
-    body = request.data
+    body         = request.data
     lang         = request.headers.get("X-Lang", "de-DE")
     content_type = request.content_type or ""
 
     log.voice_received(len(body))
 
     if not body or len(body) < 256:
-        log.voice_error(f"Zu wenig Audio-Daten ({len(body)} Bytes)")
-        return jsonify({"text": "", "error": "Zu wenig Audio-Daten empfangen"}), 400
+        log.voice_error(f"Zu wenig Audio ({len(body)} B)")
+        return jsonify({"text": "", "error": "Zu wenig Audio-Daten"}), 400
 
+    # ── Audio in WAV umwandeln ────────────────────────────────────────
     if "webm" in content_type or "ogg" in content_type:
         try:
             wav_bytes = _webm_to_wav(body)
             buf = io.BytesIO(wav_bytes)
         except FileNotFoundError:
-            log.warn("ffmpeg nicht gefunden — versuche Direktverarbeitung")
+            log.warn("ffmpeg nicht gefunden")
             buf = io.BytesIO(body)
         except Exception as e:
             log.voice_error(f"ffmpeg: {e}")
-            return jsonify({"text": "", "error": f"Audio-Konvertierung fehlgeschlagen: {e}"}), 500
+            return jsonify({"text": "", "error": f"Konvertierung fehlgeschlagen: {e}"}), 500
     else:
         rate = int(request.headers.get("X-Sample-Rate", "16000"))
         buf  = io.BytesIO()
@@ -101,34 +145,47 @@ def voice_transcribe():
             wf.writeframes(body)
         buf.seek(0)
 
-    # WAV-Diagnose
+    # WAV-Diagnose (RMS/Laenge)
     try:
         buf.seek(0)
         with wave.open(buf, "rb") as wf:
             frames = wf.getnframes()
             rate_w = wf.getframerate()
             raw    = wf.readframes(frames)
-            duration = frames / rate_w
         samples = struct.unpack(f"<{len(raw)//2}h", raw)
-        rms  = math.sqrt(sum(s*s for s in samples) / len(samples)) if samples else 0
-        log.voice_wav(duration, rms)
+        rms      = math.sqrt(sum(s*s for s in samples) / len(samples)) if samples else 0
+        log.voice_wav(frames / rate_w, rms)
         buf.seek(0)
     except Exception:
         buf.seek(0)
 
+    # ── Transkription ────────────────────────────────────────────────
     try:
-        with sr.AudioFile(buf) as source:
-            audio = _recognizer.record(source)
-        text = _recognizer.recognize_google(audio, language=lang)
-        log.voice_recognized(text, lang.split("-")[0])
-        return jsonify({"text": text})
-    except sr.UnknownValueError:
-        log.voice_nothing()
-        return jsonify({"text": "", "error": "Nichts erkannt"})
-    except sr.RequestError as e:
-        log.voice_error(f"Google API: {e}")
-        return jsonify({"text": "", "error": f"Google-Fehler: {e}"}), 502
+        if _whisper_ready and _whisper is not None:
+            # Lokal — schnell, kein Netz
+            text = _transcribe_whisper(buf, lang)
+            backend = "lokal"
+        else:
+            # Google-Fallback
+            with sr.AudioFile(buf) as source:
+                audio = _recognizer.record(source)
+            text = _recognizer.recognize_google(audio, language=lang)
+            backend = lang.split("-")[0].upper()
+
+        if text:
+            log.voice_recognized(text, backend)
+            return jsonify({"text": text})
+        else:
+            log.voice_nothing()
+            return jsonify({"text": "", "error": "Nichts erkannt"})
+
     except Exception as e:
+        if "UnknownValueError" in type(e).__name__:
+            log.voice_nothing()
+            return jsonify({"text": "", "error": "Nichts erkannt"})
+        if "RequestError" in type(e).__name__:
+            log.voice_error(f"Google API: {e}")
+            return jsonify({"text": "", "error": f"Google-Fehler: {e}"}), 502
         log.err(str(e))
         return jsonify({"text": "", "error": f"Fehler: {e}"}), 500
 
@@ -174,7 +231,6 @@ def api_speak():
         return jsonify({"error": "kein Text"}), 400
 
     try:
-        # Cache-Treffer: TTS wurde schon waehrend des Streamings generiert
         cached = tts.get_cached(rid) if rid else None
         if cached:
             audio_bytes, mime = cached
@@ -195,6 +251,7 @@ def api_speak():
 
 
 if __name__ == "__main__":
+    stt_label = "faster-whisper/base (wird geladen...)" if not _whisper_ready else f"faster-whisper/{os.getenv('JARVIS_STT_MODEL','base')}"
     log.server_ready(5000)
-    print(f"  \033[90mTTS-Backend: {tts.backend_name()}\033[0m\n")
+    print(f"  \033[90mTTS: {tts.backend_name()}  |  STT: {stt_label}\033[0m\n")
     app.run(debug=False, port=5000, threaded=True)

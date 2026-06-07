@@ -79,6 +79,7 @@ def run() -> bool:
         ("speech_recognition", "SpeechRecognition"),
         ("edge_tts",           "edge-tts"),
         ("playwright",         "playwright"),
+        ("faster_whisper",     "faster-whisper"),
     ]
 
     if req_file.exists():

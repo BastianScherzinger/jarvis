@@ -836,12 +836,20 @@ async function playSpoken(text, id = "") {
     if (_ttsSource) { try { _ttsSource.stop(); } catch {} _ttsSource = null; }
     if (_ttsAudio)  { _ttsAudio.pause(); _ttsAudio = null; }
 
-    const resp = await fetch('/api/speak', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ text: text.trim(), id }),
-    });
-    _ttsPending = false;  // Fetch abgeschlossen — Audio startet gleich
+    console.log('[TTS] fetch start → /api/speak text:', text.slice(0, 30));
+    let resp;
+    try {
+      resp = await fetch('/api/speak', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ text: text.trim(), id }),
+      });
+    } catch (fetchErr) {
+      console.error('[TTS] fetch FEHLGESCHLAGEN:', fetchErr.name, fetchErr.message);
+      throw fetchErr;
+    }
+    console.log('[TTS] fetch OK status:', resp.status, resp.ok);
+    _ttsPending = false;
 
     if (!resp.ok) {
       console.warn('[TTS] Server-Fehler:', resp.status);
@@ -850,7 +858,9 @@ async function playSpoken(text, id = "") {
     }
 
     const arrayBuffer = await resp.arrayBuffer();
+    console.log('[TTS] arrayBuffer bytes:', arrayBuffer.byteLength);
     const ctx = _getTtsCtx();
+    console.log('[TTS] AudioContext state:', ctx ? ctx.state : 'null');
 
     const _onEnd = () => {
       if (wasActive) {
@@ -892,7 +902,12 @@ async function playSpoken(text, id = "") {
 
   } catch (e) {
     _ttsPending = false;
-    console.warn('[TTS] Fehler:', e);
-    if (vrActive) { vrBusy = false; vrVadTick(); }
+    console.error('[TTS] CATCH:', e.name, '|', e.message, '|', e.stack);
+    if (vrActive) {
+      vrBusy = false;
+      if (document.getElementById('lb-label')) setVrLabel('Hoere zu...');
+      setVoiceDot('listening');
+      vrVadTick();
+    }
   }
 }

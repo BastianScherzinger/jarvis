@@ -236,6 +236,7 @@ def api_workspace_file(folder, filename):
 
 @app.route("/api/speak", methods=["POST"])
 def api_speak():
+    log.tool_call("tts", "ROUTE HIT")   # debug: route wurde aufgerufen
     data = request.get_json() or {}
     text = data.get("text", "").strip()
     rid  = data.get("id",   "").strip()

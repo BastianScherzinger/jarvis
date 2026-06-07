@@ -1,0 +1,57 @@
+# ── Secrets (NIEMALS committen!) ──────────────────────────────────
+.env
+
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Virtuelle Umgebungen ──────────────────────────────────────────
+venv/
+env/
+.venv/
+Lib/
+Scripts/
+
+# ── JARVIS Workspace (benutzerspezifische Daten) ──────────────────
+workspace/tasks/*.md
+workspace/results/*.md
+
+# ── Playwright Browser-Binaries (werden auto-installiert) ─────────
+# (kein Eintrag noetig, liegen in %APPDATA%\ms-playwright)
+
+# ── IDE & Editor ──────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user
+*.sln.docstates
+
+# ── OS ────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.lnk
+
+# ── Claude Code intern ────────────────────────────────────────────
+.claude/
+
+# ── Logs & Temp ───────────────────────────────────────────────────
+*.log
+*.tmp
+*.temp
+*.bak
+
+# ── Sonstige große Dateien ────────────────────────────────────────
+*.mp3
+*.mp4
+*.wav
+*.zip
+*.tar.gz

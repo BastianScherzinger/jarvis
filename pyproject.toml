@@ -1,0 +1,17 @@
+[project]
+name = "jarvis-agent-team"
+version = "0.1.0"
+description = "Python Expert Agent Team"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40.0",
+    "flask>=3.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "mypy>=1.10",
+    "ruff>=0.4",
+]

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>J.A.R.V.I.S — Python Expert Team</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css"/>
+  <link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+
+<!-- Full-screen 3D background -->
+<canvas id="bg-canvas"></canvas>
+
+<!-- Hex grid CSS overlay -->
+<div class="hex-overlay"></div>
+
+<!-- CRT scanlines -->
+<div class="scanlines"></div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TOPBAR
+══════════════════════════════════════════════════════════════════ -->
+<header class="topbar">
+
+  <div class="tb-left">
+    <div class="arc-reactor">
+      <div class="arc-ring r1"></div>
+      <div class="arc-ring r2"></div>
+      <div class="arc-core"></div>
+    </div>
+    <div class="tb-identity">
+      <span class="tb-name">J.A.R.V.I.S</span>
+      <span class="tb-sub">Just A Rather Very Intelligent System · Python Expert Team</span>
+    </div>
+  </div>
+
+  <div class="tb-center">
+    <div class="sys-bar">
+      <div class="sys-metric">
+        <span class="sys-val" id="m-time">00:00:00</span>
+        <span class="sys-key">CLOCK</span>
+      </div>
+      <div class="sys-sep"></div>
+      <div class="sys-metric">
+        <span class="status-dot idle"></span>
+        <span class="sys-val" id="status-label">STANDBY</span>
+      </div>
+      <div class="sys-sep"></div>
+      <div class="sys-metric">
+        <span class="live-dot" id="live-dot"></span>
+        <span class="sys-key">STREAM</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tb-right">
+    <div class="voice-indicator">
+      <span class="voice-dot disconnected" id="voice-dot"></span>
+      <span class="voice-label" id="voice-label">MIC</span>
+    </div>
+    <button class="hud-btn hud-btn-danger" onclick="resetAll()" title="Reset conversation">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+        <path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+        <path d="M8 16H3v5"/>
+      </svg>
+      RESET
+    </button>
+  </div>
+
+</header>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     MAIN GRID  (3 columns)
+══════════════════════════════════════════════════════════════════ -->
+<div class="hud-grid">
+
+  <!-- ─────────────────────────────────────────────────────────────
+       LEFT PANEL — Neural Core + Agent Nodes
+  ───────────────────────────────────────────────────────────────── -->
+  <aside class="hud-panel panel-left">
+
+    <!-- Brain -->
+    <div class="panel-hdr">
+      <span class="phdr-title">NEURAL CORE</span>
+      <span class="phdr-badge">ONLINE</span>
+    </div>
+    <div class="brain-wrap" id="brain-wrap">
+      <canvas id="brain-canvas"></canvas>
+      <div class="brain-outer-ring"></div>
+      <div class="brain-inner-ring"></div>
+      <div class="brain-cross hc"></div>
+      <div class="brain-cross vc"></div>
+    </div>
+    <div class="brain-stats">
+      <div class="bstat">
+        <span class="bstat-val" id="brain-nodes">420</span>
+        <span class="bstat-key">NODES</span>
+      </div>
+      <div class="bstat">
+        <span class="bstat-val" id="brain-conn">—</span>
+        <span class="bstat-key">LINKS</span>
+      </div>
+      <div class="bstat">
+        <span class="bstat-val" id="brain-mem">0</span>
+        <span class="bstat-key">MEMORY</span>
+      </div>
+    </div>
+
+    <!-- Agent Constellation -->
+    <div class="panel-hdr" style="margin-top:14px">
+      <span class="phdr-title">AGENT NODES</span>
+      <span class="phdr-badge idle-badge">10 ONLINE</span>
+    </div>
+    <div class="agent-constellation" id="agent-constellation"></div>
+
+  </aside>
+
+  <!-- ─────────────────────────────────────────────────────────────
+       CENTER PANEL — Command Interface
+  ───────────────────────────────────────────────────────────────── -->
+  <main class="hud-panel panel-center">
+
+    <div class="panel-hdr">
+      <span class="phdr-title">COMMAND INTERFACE</span>
+      <span class="phdr-badge" id="chat-badge">IDLE</span>
+    </div>
+
+    <!-- Welcome screen -->
+    <div class="welcome" id="welcome">
+      <div class="wl-inner">
+        <div class="wl-reactor">
+          <div class="wl-ring r1"></div>
+          <div class="wl-ring r2"></div>
+          <div class="wl-ring r3"></div>
+          <div class="wl-core">J</div>
+        </div>
+        <h1 class="wl-title">J.A.R.V.I.S</h1>
+        <p class="wl-sub">10 spezialisierte KI-Agenten · Python Expert Team<br/>Bereit für deinen Befehl, Herr.</p>
+        <div class="wl-chips">
+          <button class="chip" onclick="insertPrompt('Schreib mir eine async Python API mit FastAPI und erklaere die Architektur')">&#9889; FastAPI API</button>
+          <button class="chip" onclick="insertPrompt('Schau dir meinen Desktop-Ordner an und zeig mir alle Python-Dateien')">&#128193; PC Explorer</button>
+          <button class="chip" onclick="insertPrompt('Mach einen vollstaendigen Security und Code Review meines Projekts')">&#128274; Security Review</button>
+          <button class="chip" onclick="insertPrompt('Debugge diesen Fehler und erklaere die genaue Ursache')">&#128027; Debug Expert</button>
+          <button class="chip" onclick="insertPrompt('Optimiere meinen Code fuer maximale Performance')">&#9889; Performance</button>
+          <button class="chip" onclick="insertPrompt('Fuehre python --version aus und zeig mir was auf meinem PC installiert ist')">&#128187; System Info</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="messages" id="messages" style="display:none"></div>
+
+    <!-- Listen Bar -->
+    <div class="listen-bar" id="listen-bar" style="display:none">
+      <div class="lb-waves">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <span class="lb-label" id="lb-label">SCANNING...</span>
+      <span class="lb-interim" id="lb-interim"></span>
+      <div class="lb-controls">
+        <button class="lb-btn" id="lb-lang-btn" onclick="toggleLang()">DE</button>
+        <button class="lb-btn" id="lb-autosend-btn" onclick="toggleAutoSend()">AUTO</button>
+        <button class="lb-btn lb-cancel" onclick="cancelVoice()">&#10005;</button>
+      </div>
+    </div>
+
+    <!-- Input Bar -->
+    <div class="input-bar">
+      <button class="mic-btn" id="mic-btn" onclick="toggleVoice()" title="Voice Input (Ctrl+M)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+      <textarea
+        id="msg-input"
+        placeholder="Command input... (Enter to send, Ctrl+M for voice)"
+        rows="1"
+        onkeydown="handleKey(event)"
+        oninput="autoResize(this)"
+      ></textarea>
+      <button class="send-btn" id="send-btn" onclick="sendMessage()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+        SEND
+      </button>
+    </div>
+
+  </main>
+
+  <!-- ─────────────────────────────────────────────────────────────
+       RIGHT PANEL — System Feed
+  ───────────────────────────────────────────────────────────────── -->
+  <aside class="hud-panel panel-right">
+
+    <div class="panel-hdr">
+      <span class="phdr-title">
+        <span class="live-dot-sm" id="live-dot-sm"></span>
+        SYSTEM FEED
+      </span>
+      <div class="phdr-tabs">
+        <button class="phdr-tab active" id="tab-activity" onclick="switchTab('activity')">LIVE</button>
+        <button class="phdr-tab" id="tab-workspace" onclick="switchTab('workspace')">FILES</button>
+      </div>
+    </div>
+
+    <!-- Activity feed -->
+    <div class="ap-body" id="ap-activity">
+      <div class="ap-empty" id="ap-empty">
+        <div class="ap-empty-icon">&#9672;</div>
+        <p>Warte auf Systemaktivitaet...<br/>Agenten &amp; Tools erscheinen<br/>hier in Echtzeit.</p>
+      </div>
+      <div id="activity-feed"></div>
+    </div>
+
+    <!-- Workspace -->
+    <div class="ap-body" id="ap-workspace" style="display:none">
+      <div class="ws-section">
+        <div class="ws-label">&#9672; TASKS</div>
+        <div id="ws-tasks" class="ws-list"><span class="ws-empty">No tasks yet</span></div>
+      </div>
+      <div class="ws-section" style="margin-top:16px">
+        <div class="ws-label">&#9672; RESULTS</div>
+        <div id="ws-results" class="ws-list"><span class="ws-empty">No results yet</span></div>
+      </div>
+    </div>
+
+  </aside>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     FILE VIEWER MODAL
+══════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal" onclick="closeModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span id="modal-title"></span>
+      <button onclick="closeModal()">&#10005;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<!-- Scripts -->
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="/static/js/brain.js"></script>
+<script src="/static/js/app.js?v=10"></script>
+</body>
+</html>

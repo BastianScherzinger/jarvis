@@ -74,10 +74,10 @@ body {
   transform-origin: center center;
 }
 @keyframes bgBreath {
-  0%   { transform: scale(1.00); filter: brightness(0.82) saturate(1.1); }
-  40%  { transform: scale(1.03); filter: brightness(0.88) saturate(1.2); }
-  60%  { transform: scale(1.04); filter: brightness(0.92) saturate(1.25) drop-shadow(0 0 40px rgba(0,180,255,0.2)); }
-  100% { transform: scale(1.00); filter: brightness(0.82) saturate(1.1); }
+  0%   { transform: scale(1.00); filter: brightness(0.92) saturate(1.15); }
+  40%  { transform: scale(1.03); filter: brightness(0.97) saturate(1.25); }
+  60%  { transform: scale(1.04); filter: brightness(1.00) saturate(1.30) drop-shadow(0 0 40px rgba(0,180,255,0.25)); }
+  100% { transform: scale(1.00); filter: brightness(0.92) saturate(1.15); }
 }
 
 /* ── Vignette — Ränder abdunkeln für Lesbarkeit ─────────────────── */
@@ -86,8 +86,8 @@ body {
   inset: 0;
   z-index: -4;
   background:
-    radial-gradient(ellipse 75% 65% at 50% 50%, transparent 35%, rgba(0,0,0,0.65) 100%),
-    linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 18%, transparent 75%, rgba(0,0,0,0.75) 100%);
+    radial-gradient(ellipse 85% 75% at 50% 50%, transparent 45%, rgba(0,0,0,0.42) 100%),
+    linear-gradient(to bottom, rgba(0,0,0,0.38) 0%, transparent 22%, transparent 78%, rgba(0,0,0,0.52) 100%);
   pointer-events: none;
 }
 
@@ -140,11 +140,11 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  background: rgba(0, 5, 14, 0.45);
-  backdrop-filter: blur(8px) saturate(1.4);
-  -webkit-backdrop-filter: blur(8px) saturate(1.4);
-  border-bottom: 1px solid var(--border-hi);
-  box-shadow: 0 2px 30px rgba(0, 180, 255, 0.08);
+  background: rgba(0, 4, 10, 0.28);
+  backdrop-filter: blur(28px) saturate(1.8) brightness(1.05);
+  -webkit-backdrop-filter: blur(28px) saturate(1.8) brightness(1.05);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.28);
+  box-shadow: 0 2px 30px rgba(0, 180, 255, 0.08), inset 0 1px 0 rgba(0,212,255,0.08);
   flex-shrink: 0;
   z-index: 100;
   position: relative;
@@ -333,15 +333,15 @@ body {
 
 /* ── Panels — Glassmorphisch über Iron-Man-Labor ─────────────────── */
 .hud-panel {
-  background: rgba(1, 8, 18, 0.22);
-  backdrop-filter: blur(4px) saturate(1.2);
-  -webkit-backdrop-filter: blur(4px) saturate(1.2);
-  border-right: 1px solid var(--border);
+  background: rgba(0, 5, 12, 0.08);
+  backdrop-filter: blur(22px) saturate(1.9) brightness(1.06);
+  -webkit-backdrop-filter: blur(22px) saturate(1.9) brightness(1.06);
+  border-right: 1px solid rgba(0, 212, 255, 0.12);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   position: relative;
-  box-shadow: inset 0 0 60px rgba(0, 30, 50, 0.3);
+  box-shadow: inset 0 0 80px rgba(0, 15, 35, 0.12), inset 1px 0 0 rgba(0,212,255,0.04);
 }
 .panel-left  { border-right: 1px solid var(--border-hi); }
 .panel-right { border-left: 1px solid var(--border-hi); border-right: none; }
@@ -670,19 +670,31 @@ body {
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
   min-height: 0;
 }
 .message {
   display: flex;
   gap: 12px;
-  animation: msg-in 0.3s ease-out;
 }
-@keyframes msg-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+/* JARVIS — reinfliegen von links mit Nachleucht-Effekt */
+.message.assistant {
+  animation: msg-jarvis-in 0.55s cubic-bezier(0.23, 1, 0.32, 1) forwards;
 }
-.message.user { flex-direction: row-reverse; }
+/* User — von rechts */
+.message.user {
+  flex-direction: row-reverse;
+  animation: msg-user-in 0.38s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+@keyframes msg-jarvis-in {
+  0%   { opacity: 0; transform: translateX(-28px) translateY(8px); }
+  60%  { opacity: 1; transform: translateX(4px)   translateY(0); }
+  100% { opacity: 1; transform: translateX(0)     translateY(0); }
+}
+@keyframes msg-user-in {
+  0%   { opacity: 0; transform: translateX(24px) translateY(6px); }
+  100% { opacity: 1; transform: translateX(0)    translateY(0); }
+}
 
 .msg-av {
   width: 32px; height: 32px;
@@ -694,14 +706,18 @@ body {
   font-weight: 700;
 }
 .msg-av.jarvis {
-  background: radial-gradient(circle, rgba(0,212,255,0.2), rgba(0,212,255,0.05));
-  border: 1px solid var(--border-hi);
+  background: radial-gradient(circle, rgba(0,212,255,0.28), rgba(0,212,255,0.04));
+  border: 1px solid rgba(0, 212, 255, 0.55);
   color: var(--cyan);
-  box-shadow: 0 0 10px rgba(0,212,255,0.15);
+  animation: av-ignite 0.7s ease-out forwards;
+}
+@keyframes av-ignite {
+  0%   { box-shadow: 0 0 0 4px rgba(0,212,255,0.25), 0 0 24px rgba(0,212,255,0.7); }
+  100% { box-shadow: 0 0 8px rgba(0,212,255,0.18); }
 }
 .msg-av.user-av {
-  background: rgba(90,138,170,0.15);
-  border: 1px solid rgba(90,138,170,0.3);
+  background: rgba(90,138,170,0.12);
+  border: 1px solid rgba(90,138,170,0.28);
   color: var(--text-2);
   font-size: 0.6rem;
 }
@@ -717,24 +733,72 @@ body {
 }
 .message.user .msg-name { text-align: right; color: var(--text-3); }
 
+/* ── JARVIS Bubble — Glas + Shimmer + Scanline ─────────────────── */
 .msg-bubble {
-  background: rgba(3, 20, 38, 0.85);
-  border: 1px solid var(--border);
-  border-radius: 4px 12px 12px 12px;
-  padding: 12px 16px;
+  background: rgba(0, 16, 36, 0.20);
+  border: 1px solid rgba(0, 212, 255, 0.32);
+  border-radius: 2px 14px 14px 14px;
+  padding: 13px 17px;
   font-size: 0.85rem;
-  line-height: 1.7;
+  line-height: 1.75;
   color: var(--text);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(24px) saturate(1.7);
+  -webkit-backdrop-filter: blur(24px) saturate(1.7);
   position: relative;
   word-break: break-word;
+  overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(0, 212, 255, 0.14),
+    inset 0 0 30px rgba(0, 180, 255, 0.04),
+    0 8px 36px rgba(0, 0, 0, 0.38),
+    0 0 0 1px rgba(0, 212, 255, 0.06);
+  animation: bubble-appear 0.6s ease-out forwards;
 }
+@keyframes bubble-appear {
+  0%   { box-shadow: inset 0 1px 0 rgba(0,212,255,0.14), 0 0 0 2px rgba(0,212,255,0.22), 0 0 40px rgba(0,212,255,0.20); }
+  100% { box-shadow: inset 0 1px 0 rgba(0,212,255,0.14), inset 0 0 30px rgba(0,180,255,0.04), 0 8px 36px rgba(0,0,0,0.38), 0 0 0 1px rgba(0,212,255,0.06); }
+}
+/* Shimmer — zieht durch die Blase */
+.msg-bubble::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -70%;
+  width: 50%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.06), rgba(255,255,255,0.03), transparent);
+  animation: bubble-shimmer 4s ease-in-out 0.3s infinite;
+  pointer-events: none;
+}
+@keyframes bubble-shimmer {
+  0%   { left: -70%; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { left: 140%; opacity: 0; }
+}
+/* Scan-Linie fährt von oben nach unten beim Eintritt */
+.msg-bubble::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(0,212,255,0.9) 40%, rgba(0,229,160,0.7) 60%, transparent 100%);
+  animation: bubble-scan 0.7s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+  pointer-events: none;
+}
+@keyframes bubble-scan {
+  0%   { transform: translateY(0px);   opacity: 1; }
+  70%  { opacity: 0.6; }
+  100% { transform: translateY(140px); opacity: 0; }
+}
+
+/* User Bubble — andere Farbe, kein Shimmer */
 .message.user .msg-bubble {
-  background: rgba(0, 212, 255, 0.07);
-  border-color: rgba(0, 212, 255, 0.2);
-  border-radius: 12px 4px 12px 12px;
-  color: var(--text);
+  background: rgba(0, 55, 100, 0.16);
+  border-color: rgba(0, 160, 212, 0.22);
+  border-radius: 14px 2px 14px 14px;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.05);
 }
+.message.user .msg-bubble::before,
+.message.user .msg-bubble::after { display: none; }
 .msg-bubble p { margin: 0 0 8px; }
 .msg-bubble p:last-child { margin: 0; }
 .msg-bubble code {
@@ -836,8 +900,10 @@ body {
   align-items: flex-end;
   gap: 8px;
   padding: 12px 14px;
-  border-top: 1px solid var(--border-hi);
-  background: rgba(2,10,20,0.9);
+  border-top: 1px solid rgba(0, 212, 255, 0.22);
+  background: rgba(0, 6, 16, 0.45);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
   flex-shrink: 0;
 }
 #msg-input {
@@ -957,16 +1023,18 @@ body {
 
 /* Activity cards */
 .activity-card {
-  background: rgba(3, 15, 28, 0.9);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--cyan);
+  background: rgba(0, 10, 24, 0.18);
+  border: 1px solid rgba(0, 212, 255, 0.12);
+  border-left: 2px solid var(--cyan);
   border-radius: 0 4px 4px 0;
   padding: 10px 12px;
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
   transition: border-color 0.3s;
-  animation: card-in 0.25s ease-out;
+  animation: card-in 0.3s cubic-bezier(0.23, 1, 0.32, 1);
 }
 @keyframes card-in {
-  from { opacity: 0; transform: translateX(10px); }
+  from { opacity: 0; transform: translateX(14px); }
   to   { opacity: 1; transform: translateX(0); }
 }
 .agent-card { border-left-color: var(--ac, var(--cyan)); }
@@ -1238,12 +1306,16 @@ body {
 /* ── Activity Feed — leserliche Sätze ──────────────────────────── */
 .activity-card {
   padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: rgba(0,212,255,0.025);
+  border: 1px solid rgba(0, 212, 255, 0.11);
+  border-left: 2px solid var(--cyan);
+  border-radius: 0 4px 4px 0;
+  background: rgba(0, 8, 20, 0.15);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
   margin-bottom: 6px;
   transition: border-color 0.3s;
   font-size: 0.72rem;
+  animation: card-in 0.3s cubic-bezier(0.23, 1, 0.32, 1);
 }
 .ac-sentence {
   font-family: var(--font-data);
@@ -1281,9 +1353,11 @@ body {
 .ctx-stats-block {
   flex-shrink: 0;
   padding: 10px 18px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: rgba(0,212,255,0.03);
+  border-top: 1px solid rgba(0, 212, 255, 0.15);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.10);
+  background: rgba(0, 6, 16, 0.22);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   display: flex;
   flex-direction: column;
   gap: 7px;

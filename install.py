@@ -302,6 +302,23 @@ def run() -> bool:
     elif mcp_file.exists() and not npx_ok:
         _warn("MCP-Server", "npx fehlt — Node.js installieren")
 
+    # ── Google Maps Key → ~/.claude/.env synchen (für MCP-Server) ──
+    import pathlib as _pl, re as _re2
+    _jarvis_env = HERE / ".env"
+    _claude_env = _pl.Path.home() / ".claude" / ".env"
+    if _jarvis_env.exists():
+        _m = _re2.search(r"GOOGLE_MAPS_API_KEY=(.+)", _jarvis_env.read_text(encoding="utf-8"))
+        if _m:
+            _key = _m.group(1).strip()
+            _ce = _claude_env.read_text(encoding="utf-8") if _claude_env.exists() else ""
+            if "GOOGLE_MAPS_API_KEY" not in _ce:
+                _claude_env.parent.mkdir(parents=True, exist_ok=True)
+                with open(_claude_env, "a", encoding="utf-8") as _cf:
+                    _cf.write(f"\nGOOGLE_MAPS_API_KEY={_key}\n")
+                _ok("~/.claude/.env", "GOOGLE_MAPS_API_KEY gesetzt")
+            else:
+                _ok("~/.claude/.env", "GOOGLE_MAPS_API_KEY bereits vorhanden")
+
     # ── obsidian_brain Ordner anlegen ───────────────────────────────
     (HERE / "obsidian_brain").mkdir(exist_ok=True)
 

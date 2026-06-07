@@ -199,28 +199,49 @@ def run() -> bool:
 
         MODELS = {
             "1": {
-                "key":  "allware",
-                "name": "llama3.3:70b",
-                "desc": "Bestes lokales Modell  (~43 GB, braucht GPU / 48 GB RAM)",
+                "key":  "tiny",
+                "name": "llama3.2:1b",
+                "desc": "Jede Hardware    (~600 MB, 1 GB RAM)  — schnell, einfache Aufgaben",
             },
             "2": {
+                "key":  "small",
+                "name": "qwen2.5:3b",
+                "desc": "Schwache PC      (~2 GB,  4 GB RAM)  — besser als tiny",
+            },
+            "3": {
                 "key":  "laptop",
                 "name": "qwen2.5:7b",
-                "desc": "HP-Laptop-optimiert    (~4.7 GB, läuft auf 8 GB RAM)",
+                "desc": "HP-Laptop        (~4.7 GB, 8 GB RAM) — empfohlen fuer Laptops",
+            },
+            "4": {
+                "key":  "medium",
+                "name": "qwen2.5:14b",
+                "desc": "Desktop 16 GB    (~9 GB,  16 GB VRAM) — solide Qualitaet",
+            },
+            "5": {
+                "key":  "large",
+                "name": "qwen2.5:32b",
+                "desc": "Desktop 32 GB    (~20 GB, 32 GB VRAM) — starke Qualitaet",
+            },
+            "6": {
+                "key":  "allware",
+                "name": "llama3.3:70b",
+                "desc": "High-End Server  (~43 GB, 48 GB VRAM) — bestes lokales Modell",
             },
         }
 
         if not has_model:
             print()
-            print(f"  {CY}{'─' * 50}{R}")
-            print(f"  {CY}{B}  Lokales KI-Modell wählen{R}")
-            print(f"  {CY}{'─' * 50}{R}")
+            print(f"  {CY}{'─' * 56}{R}")
+            print(f"  {CY}{B}  Lokales KI-Modell waehlen{R}  {GY}(je nach Hardware){R}")
+            print(f"  {CY}{'─' * 56}{R}")
             for k, m in MODELS.items():
                 print(f"  [{k}]  {B}{m['key'].upper():<10}{R}  {m['name']:<20}  {GY}{m['desc']}{R}")
-            print(f"  [0]  Überspringen{GY} (kein lokales Modell){R}")
+            print(f"  [0]  Ueberspringen  {GY}(kein lokales Modell){R}")
             print()
+            keys = "/".join(["0"] + list(MODELS.keys()))
             try:
-                choice = input(f"  {CY}Auswahl (0/1/2):{R} ").strip()
+                choice = input(f"  {CY}Auswahl ({keys}):{R} ").strip()
             except (EOFError, KeyboardInterrupt):
                 choice = "0"
 

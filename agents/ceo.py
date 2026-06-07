@@ -33,6 +33,38 @@ def _brain_entry(topic: str, lines: list[str]) -> None:
         pass  # Brain-Schreiben darf nie den Haupt-Flow unterbrechen
 
 
+def _ollama_enrich_brain(topic: str, context: str) -> None:
+    """Lässt Ollama einen Tagebucheintrag ins Session-Journal schreiben — Hintergrundthread."""
+    import os as _os, threading as _th
+
+    model = _os.environ.get("JARVIS_LOCAL_MODEL", "")
+    if not model:
+        return
+
+    def _write():
+        try:
+            prompt = (
+                f"Beschreibe in einem präzisen deutschen Satz was JARVIS getan hat:\n{context[:400]}"
+            )
+            chunks = list(_ollama_token_stream(
+                [{"role": "user", "content": prompt}],
+                "Du bist JARVIS-Protokollant. Schreibe technische Tagebucheinträge in der dritten Person. "
+                "Kein Markdown, kein Punkt am Satzende, maximal 180 Zeichen.",
+            ))
+            summary = "".join(chunks).strip()[:200]
+            if not summary:
+                return
+            _BRAIN_DIR.mkdir(exist_ok=True)
+            journal = _BRAIN_DIR / f"session_{datetime.date.today().isoformat()}.md"
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            with open(journal, 'a', encoding='utf-8') as f:
+                f.write(f"- **{ts}** `[{topic}]` {summary}\n")
+        except Exception:
+            pass
+
+    _th.Thread(target=_write, daemon=True).start()
+
+
 def _strip_emojis(text: str) -> str:
     out = []
     for ch in text:
@@ -151,9 +183,12 @@ def _load_system_prompt() -> str:
             return (
                 content
                 + "\n\n## Antwort-Stil\n"
-                "- SO KURZ WIE MÖGLICH. Einfache Fragen: 1-2 Sätze.\n"
-                "- Keine Floskeln (kein 'Natürlich!', 'Gerne!').\n"
-                "- Kurze Antworten → kein Markdown. Code → Code-Blöcke.\n"
+                "- KÜRZE ÜBER ALLES. Einfache Antwort: 1-2 Sätze. Nie mehr als nötig.\n"
+                "- KEIN Smalltalk. Kein 'Natürlich!', 'Gerne!', 'Sehr gerne!', 'Absolut!', 'Verstanden, ich werde...'.\n"
+                "- Kurze Antworten: Fließtext. Komplexe: Markdown mit Struktur. Code: immer Code-Blöcke.\n"
+                "- Code-Qualität: maximal. Korrekt, sicher, idiomatisch Python. Keine Halbfertigkeiten.\n"
+                "- Erkläre nur WAS nicht klar ist. WAS der Code tut — nie erklären. Nur das WARUM wenn überraschend.\n"
+                "- Bei Fehlern: Root Cause nennen + Fix. Nicht drumherumreden.\n"
             )
         except Exception:
             pass
@@ -366,7 +401,6 @@ class JarvisCEO:
                         agent_key = tool_input.get("agent", "")
                         agent_obj = TEAM.get(agent_key)
                         log.agent_done(agent_key, agent_obj.name if agent_obj else agent_key, elapsed_t)
-                        # Brain: Agent-Delegation protokollieren
                         task_snippet = tool_input.get("task", "")[:80]
                         _brain_entry(
                             f"Agent {agent_key}",
@@ -374,9 +408,12 @@ class JarvisCEO:
                              f"Aufgabe: {task_snippet}",
                              f"Ergebnis: {str_result[:120]}"],
                         )
+                        _ollama_enrich_brain(
+                            f"Agent:{agent_key}",
+                            f"Agent {agent_obj.name if agent_obj else agent_key} löste: {task_snippet} → {str_result[:200]}"
+                        )
                     else:
                         log.tool_done(tool_name, len(str_result), elapsed_t)
-                        # Brain: PC/Browser-Tool protokollieren
                         detail = (tool_input.get("path") or tool_input.get("command") or
                                   tool_input.get("url") or tool_input.get("query") or
                                   tool_input.get("pattern") or "")
@@ -385,6 +422,10 @@ class JarvisCEO:
                             [f"Tool: {tool_name}",
                              f"Aktion: {str(detail)[:80]}",
                              f"Ergebnis: {str_result[:120]}"],
+                        )
+                        _ollama_enrich_brain(
+                            tool_name,
+                            f"Tool {tool_name} auf '{str(detail)[:80]}' → {str_result[:200]}"
                         )
 
                     yield _sse({
@@ -412,11 +453,14 @@ class JarvisCEO:
                 self.history.append({"role": "assistant", "content": accumulated_resp})
                 log.response_done(elapsed=time.time() - stream_start, tokens=token_count)
 
-                # Brain: Gesprächs-Eintrag — Wissen wächst mit jeder Antwort
                 _brain_entry(
                     user_message[:40],
                     [f"Frage: {user_message[:100]}",
                      f"Antwort: {round_text[:160]}"],
+                )
+                _ollama_enrich_brain(
+                    "Gespräch",
+                    f"Sir fragte: {user_message[:120]} — JARVIS antwortete: {round_text[:200]}"
                 )
 
                 yield _sse({"type": "done", "usage": dict(_usage)})

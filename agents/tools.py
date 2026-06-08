@@ -822,7 +822,7 @@ def _local_ai_worker(task: str, system: str = "", model: str = "") -> str:
     except Exception:
         pass  # weiter versuchen
 
-    # ── Eigentlicher Inference-Request ──────────────────────────────
+    # ── Inference via Streaming (stream:True ist stabiler auf Windows) ──
     messages = []
     if system.strip():
         messages.append({"role": "system", "content": system})
@@ -831,8 +831,7 @@ def _local_ai_worker(task: str, system: str = "", model: str = "") -> str:
     payload = _json.dumps({
         "model": model,
         "messages": messages,
-        "stream": False,
-        "keep_alive": "5m",   # Modell 5 Min im RAM halten
+        "stream": True,   # stream:False gibt auf manchen Ollama-Versionen HTTP 500
     }).encode()
     try:
         req = Request(
@@ -841,17 +840,36 @@ def _local_ai_worker(task: str, system: str = "", model: str = "") -> str:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        content = ""
         with urlopen(req, timeout=300) as resp:
-            data = _json.loads(resp.read())
-        content = data.get("message", {}).get("content", "").strip()
-        if not content:
+            for raw_line in resp:
+                line = raw_line.decode("utf-8").strip()
+                if not line:
+                    continue
+                try:
+                    obj = _json.loads(line)
+                    if obj.get("error"):
+                        return f"Ollama-Fehler ({model}): {obj['error']}"
+                    chunk = obj.get("message", {}).get("content", "")
+                    if chunk:
+                        content += chunk
+                    if obj.get("done"):
+                        break
+                except _json.JSONDecodeError:
+                    continue
+        if not content.strip():
             return f"Ollama ({model}): Keine Antwort erhalten."
-        return f"[Lokales Modell: {model}]\n\n{content}"
+        return f"[Lokales Modell: {model}]\n\n{content.strip()}"
     except URLError as e:
-        return (
-            f"Ollama-Verbindungsfehler ({model}): {e.reason}\n"
-            f"Ollama läuft unter {BASE} — prüfe ob das Modell {model} geladen werden kann."
-        )
+        reason = getattr(e, "reason", str(e))
+        # HTTPError: Antwort-Body enthält Ollama-Fehlermeldung
+        if hasattr(e, "read"):
+            try:
+                body = _json.loads(e.read())
+                reason = body.get("error", reason)
+            except Exception:
+                pass
+        return f"Ollama-Fehler ({model}): {reason}"
     except Exception as e:
         return f"Ollama-Fehler ({model}): {type(e).__name__}: {e}"
 

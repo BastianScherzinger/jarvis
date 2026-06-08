@@ -85,9 +85,13 @@ function activateSatView() {
   if (satBtn)   satBtn.classList.add("active");
   if (toggle)   toggle.classList.add("active");
 
-  // Google Maps resize triggern wenn bereits geladen
-  if (window._jarvisMap && typeof google !== "undefined") {
-    setTimeout(() => google.maps.event.trigger(window._jarvisMap, "resize"), 80);
+  // Leaflet initialisieren / Größe aktualisieren
+  if (typeof L !== "undefined") {
+    if (!window._leafletMap) {
+      setTimeout(initLeafletMap, 120);
+    } else {
+      setTimeout(() => window._leafletMap.invalidateSize(), 120);
+    }
   }
   showToast("Satelliten-Ansicht aktiviert");
 }
@@ -154,83 +158,126 @@ function confirmSat(yes) {
   if (yes) activateSatView();
 }
 
-/* ═══════════════════════ MODULE INSTALLER ════════════════════════ */
-let _modulePanelOpen     = false;
-let _installInProgress   = null;
+/* ═══════════════════════ KI-MODELL DROPDOWN (Topbar) ════════════ */
+let _modelDropOpen   = false;
+let _installInProgress = null;
 
-function toggleModulePanel() {
-  _modulePanelOpen = !_modulePanelOpen;
-  const body    = document.getElementById("module-body");
-  const chevron = document.getElementById("module-chevron");
-  if (body) {
-    body.style.maxHeight = _modulePanelOpen ? "460px" : "0px";
-    body.style.opacity   = _modulePanelOpen ? "1"     : "0";
-  }
-  if (chevron) chevron.textContent = _modulePanelOpen ? "▲" : "▼";
-  if (_modulePanelOpen) loadModels();
+function toggleModelDrop(e) {
+  if (e) e.stopPropagation();
+  _modelDropOpen ? closeModelDrop() : openModelDrop();
 }
+
+async function openModelDrop() {
+  _modelDropOpen = true;
+  const drop = document.getElementById("model-drop");
+  const sel  = document.getElementById("tb-model-sel");
+  if (!drop) return;
+  drop.classList.add("open");
+  if (sel) sel.classList.add("drop-open");
+
+  try {
+    const data   = await fetch("/api/models").then(r => r.json());
+    const inner  = document.getElementById("model-drop-inner");
+    if (!inner) return;
+
+    // Topbar-Badge aktualisieren
+    const active = data.models.find(m => m.active);
+    _updateModelBadge(active);
+
+    const ollama = data.ollama;
+    inner.innerHTML = data.models.map(m => `
+      <div class="mdc ${m.active ? "mdc-active" : ""}" id="mdc-${m.key}">
+        <div class="mdc-head">
+          <div class="mdc-tier-wrap">
+            <span class="mdc-tier">T${m.tier}</span>
+            ${m.installed ? '<span class="mdc-dot-ok">●</span>' : ''}
+          </div>
+          <div class="mdc-info">
+            <span class="mdc-name">${m.id}</span>
+            <span class="mdc-meta">${m.desc} · <span class="mdc-vram">${m.vram}</span></span>
+          </div>
+          <div class="mdc-action">
+            ${m.active
+              ? '<span class="mdc-badge-active">◉ AKTIV</span>'
+              : m.installed
+                ? `<button class="mdc-btn mdc-sel" onclick="selectModelDrop('${m.id}')">WÄHLEN</button>`
+                : `<button class="mdc-btn mdc-inst" onclick="installModelDrop('${m.id}')"${!ollama ? ' disabled title="Ollama nicht installiert"' : ''}>LADEN</button>`
+            }
+          </div>
+        </div>
+        <div class="mdc-pbar-wrap" id="mdc-pb-${m.key}" style="display:none">
+          <div class="mdc-pbar-track"><div class="mdc-pbar-fill" id="mdc-pf-${m.key}"></div></div>
+          <span class="mdc-ptext" id="mdc-pt-${m.key}">Lade...</span>
+        </div>
+      </div>`).join("") +
+      (!ollama ? '<div class="mdc-warn">Ollama nicht installiert — <a href="https://ollama.com" target="_blank" style="color:var(--cyan)">ollama.com</a></div>' : "");
+
+  } catch(e) {
+    const inner = document.getElementById("model-drop-inner");
+    if (inner) inner.innerHTML = `<div class="mdc-warn" style="color:var(--danger)">Fehler: ${e.message}</div>`;
+  }
+}
+
+function closeModelDrop() {
+  _modelDropOpen = false;
+  const drop = document.getElementById("model-drop");
+  const sel  = document.getElementById("tb-model-sel");
+  if (drop) drop.classList.remove("open");
+  if (sel)  sel.classList.remove("drop-open");
+}
+
+function _updateModelBadge(active) {
+  const nameEl = document.getElementById("tb-model-name");
+  const dotEl  = document.getElementById("tb-model-dot");
+  if (nameEl) nameEl.textContent = active ? active.key.toUpperCase() : "KI";
+  if (dotEl)  dotEl.style.background = active ? "var(--accent)" : "var(--text-3)";
+}
+
+// Außerhalb klicken → schließen
+document.addEventListener("click", (e) => {
+  if (_modelDropOpen && !e.target.closest("#tb-model-sel") && !e.target.closest("#model-drop")) {
+    closeModelDrop();
+  }
+});
 
 async function loadModels() {
   try {
     const data = await fetch("/api/models").then(r => r.json());
-
-    // Badge updaten (im geschlossenen Zustand sichtbar)
     const active = data.models.find(m => m.active);
-    const badge  = document.getElementById("module-badge");
-    if (badge) badge.textContent = active ? active.key.toUpperCase() : "—";
-
-    if (!_modulePanelOpen) return; // Nur rendern wenn offen
-
-    const list = document.getElementById("module-list");
-    if (!list) return;
-
-    list.innerHTML = data.models.map(m => `
-      <div class="model-card ${m.active ? "mc-active" : ""}" id="mc-${m.key}">
-        <div class="mc-head">
-          <span class="mc-tier">T${m.tier}</span>
-          <div class="mc-info">
-            <span class="mc-id">${m.id}</span>
-            <span class="mc-desc">${m.desc} · ${m.vram}</span>
-          </div>
-          <div class="mc-right">
-            ${m.active
-              ? '<span class="mc-status-active">◉ AKTIV</span>'
-              : m.installed
-                ? `<button class="mc-btn mc-btn-sel" onclick="selectModel('${m.id}')">WÄHLEN</button>`
-                : `<button class="mc-btn mc-btn-inst" onclick="installModel('${m.id}')"${!m.ollama_ok ? ' disabled title="Ollama nicht installiert"' : ''}>LADEN</button>`
-            }
-          </div>
-        </div>
-        <div class="mc-progress-wrap" id="mcp-${m.key}" style="display:none">
-          <div class="mc-pbar-track"><div class="mc-pbar-fill" id="mcpf-${m.key}"></div></div>
-          <span class="mc-ptext" id="mcpt-${m.key}">Lade...</span>
-        </div>
-      </div>`).join("");
-  } catch(e) {
-    const list = document.getElementById("module-list");
-    if (list) list.innerHTML = `<div class="mc-loading" style="color:var(--danger)">Ladefehler: ${e.message}</div>`;
-  }
+    _updateModelBadge(active);
+  } catch {}
 }
 
-async function installModel(modelId) {
-  if (_installInProgress) { showToast("Installation läuft bereits..."); return; }
+async function selectModelDrop(modelId) {
+  try {
+    const r = await fetch("/api/models/select", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelId }),
+    });
+    const d = await r.json();
+    if (d.ok) { showToast(`Aktiv: ${modelId}`); closeModelDrop(); setTimeout(openModelDrop, 180); }
+    else       showToast(`Fehler: ${d.error}`);
+  } catch { showToast("Fehler beim Auswählen"); }
+}
+
+async function installModelDrop(modelId) {
+  if (_installInProgress) { showToast("Installation läuft..."); return; }
   _installInProgress = modelId;
 
   const data = await fetch("/api/models").then(r => r.json()).catch(() => null);
   if (!data) { _installInProgress = null; return; }
   const m = data.models.find(x => x.id === modelId);
-  if (!m)  { _installInProgress = null; return; }
+  if (!m)   { _installInProgress = null; return; }
 
-  const prog  = document.getElementById(`mcp-${m.key}`);
-  const ptext = document.getElementById(`mcpt-${m.key}`);
-  const pfill = document.getElementById(`mcpf-${m.key}`);
-  if (prog) prog.style.display = "block";
-  if (pfill) pfill.style.width = "5%";
+  const prog  = document.getElementById(`mdc-pb-${m.key}`);
+  const ptext = document.getElementById(`mdc-pt-${m.key}`);
+  const pfill = document.getElementById(`mdc-pf-${m.key}`);
+  if (prog)  prog.style.display  = "block";
+  if (pfill) pfill.style.width   = "5%";
 
   try {
     const resp    = await fetch("/api/models/install", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: modelId }),
     });
     const reader  = resp.body.getReader();
@@ -241,8 +288,7 @@ async function installModel(modelId) {
       const { done, value } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop();
+      const lines = buf.split("\n"); buf = lines.pop();
       for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
         try {
@@ -255,7 +301,7 @@ async function installModel(modelId) {
           if (ev.done) {
             if (pfill) pfill.style.width = "100%";
             showToast(`${modelId} bereit!`);
-            setTimeout(() => { if (prog) prog.style.display = "none"; loadModels(); }, 1200);
+            setTimeout(() => { if (_modelDropOpen) openModelDrop(); }, 1000);
           }
           if (ev.error) {
             showToast(`Fehler: ${ev.error}`);
@@ -270,19 +316,6 @@ async function installModel(modelId) {
   } finally {
     _installInProgress = null;
   }
-}
-
-async function selectModel(modelId) {
-  try {
-    const r = await fetch("/api/models/select", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: modelId }),
-    });
-    const d = await r.json();
-    if (d.ok) { showToast(`Aktiv: ${modelId}`); loadModels(); }
-    else       showToast(`Fehler: ${d.error}`);
-  } catch { showToast("Fehler beim Auswählen"); }
 }
 
 /* ═══════════════════════ SEND MESSAGE ═══════════════════════════ */

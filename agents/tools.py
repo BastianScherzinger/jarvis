@@ -51,7 +51,7 @@ TOOL_DEFINITIONS = [
             "type": "object",
             "properties": {
                 "command": {"type": "string", "description": "PowerShell-Befehl"},
-                "timeout": {"type": "integer", "description": "Timeout in Sekunden (default 30)", "default": 30},
+                "timeout": {"type": "integer", "description": "Timeout in Sekunden (default 120, für lange Prozesse bis 300)", "default": 120},
             },
             "required": ["command"],
         },
@@ -303,7 +303,7 @@ def execute_tool(name: str, inputs: dict) -> str:
         case "write_file":
             return _write_file(inputs["path"], inputs["content"])
         case "run_command":
-            return _run_command(inputs["command"], inputs.get("timeout", 30))
+            return _run_command(inputs["command"], inputs.get("timeout", 120))
         case "list_directory":
             return _list_directory(inputs["path"], inputs.get("recursive", False))
         case "search_files":
@@ -365,7 +365,7 @@ def _write_file(path: str, content: str) -> str:
         return f"Fehler beim Schreiben: {e}"
 
 
-def _run_command(command: str, timeout: int = 30) -> str:
+def _run_command(command: str, timeout: int = 120) -> str:
     try:
         result = subprocess.run(
             ["powershell", "-NonInteractive", "-Command", command],

@@ -3,6 +3,7 @@ JARVIS — CEO Agent. Einziger Ansprechpartner fuer den User.
 Koordiniert das Team via Anthropic tool-use und hat Zugriff auf den PC.
 """
 import base64 as _b64
+import concurrent.futures as _cf
 import datetime
 import json
 import re
@@ -168,7 +169,7 @@ def _ollama_token_stream(history: list[dict], system: str):
     }).encode("utf-8")
 
     request = _req.Request(
-        "http://localhost:11434/api/chat",
+        "http://127.0.0.1:11434/api/chat",
         data=payload,
         headers={"Content-Type": "application/json"},
     )
@@ -216,14 +217,29 @@ def _load_system_prompt() -> str:
             return (
                 content
                 + local_info
-                + "\n\n## Dashboard-Features (Frontend)\n"
-                "Das JARVIS-Dashboard hat folgende UI-Features die Sir direkt per Sprache/Chat steuern kann:\n"
-                "- **Satelliten-Ansicht**: Im rechten Panel wo das Arc-Reactor-Logo ist. Leaflet.js Karte mit ESRI-Satellitenbildern. "
-                "Aktivierung: Sir sagt 'Satellit an' / 'Satelliten-Ansicht' / 'zeig die Karte' → das Frontend erkennt das Schlüsselwort automatisch und aktiviert. "
-                "Wenn Sir fragt ob du einen Satellit hast: Antwort 'Ja, Sir — Satelliten-Ansicht ist verfügbar.' und erwähne das Schlüsselwort 'Satellit'.\n"
-                "- **Sprach-Ein/Ausgabe**: Mikrofon-Button oben rechts (Whisper STT + edge-tts Conrad Neural)\n"
-                "- **KI-Modul-Wähler**: Topbar-Dropdown für lokale Ollama-Modelle\n"
-                "- **Neural Core**: Three.js Wissenssphäre links — wächst mit jedem Tool-Call\n"
+                + "\n\n## Dashboard-Features — KRITISCH: Wie diese Features funktionieren\n"
+                "\n"
+                "Das JARVIS-Dashboard ist eine Webseite im Browser (localhost:5000). "
+                "Alle visuellen Features (Karten, Sphere, Dropdown) sind BROWSER-UI-Elemente in JavaScript — "
+                "NIEMALS versuchen diese mit run_command, search_files oder anderen PC-Tools zu steuern. Das ist falsch.\n"
+                "\n"
+                "### Satelliten-Ansicht (WICHTIG — genau lesen!)\n"
+                "- Was es ist: Eine Leaflet.js Satelliten-Karte (ESRI World Imagery) im rechten Panel des Dashboards\n"
+                "- Wo: Im Browser bei localhost:5000, rechtes Panel, hinter dem Arc-Reactor-Logo\n"
+                "- Wie es aktiviert wird: Das JavaScript im Browser (app.js) ÜBERWACHT JARVIS'S ANTWORTEN.\n"
+                "  Wenn JARVIS antwortet und der Text die Wörter 'Satellit' + 'aktiviert'/'an'/'öffne' enthält,\n"
+                "  schaltet das Frontend die Karte AUTOMATISCH ein. JARVIS muss nur die richtigen Wörter sagen.\n"
+                "- KORREKTE Reaktion wenn Sir 'Satellit an' / 'zeig den Satellit' / 'schalte Satellit an' sagt:\n"
+                "  → Antworte: 'Satelliten-Ansicht aktiviert, Sir.' (kein Tool-Call nötig, kein run_command!)\n"
+                "  → Das Frontend erkennt 'Satellit' + 'aktiviert' und schaltet die Karte automatisch ein.\n"
+                "- KORREKTE Reaktion wenn Sir fragt ob du einen Satellit HAST:\n"
+                "  → Antworte: 'Ja, Sir — Satelliten-Ansicht ist verfügbar. Soll ich die Karte aktivieren?'\n"
+                "- VERBOTEN: Niemals Get-Process, search_files, run_command für Satellit aufrufen — das ist falsch!\n"
+                "\n"
+                "### Weitere Dashboard-Features\n"
+                "- **Neural Core** (Wissenssphäre): Three.js 3D-Sphere links — zeigt obsidian_brain/ Dateien als Knoten\n"
+                "- **KI-Modul-Wähler**: Dropdown oben in der Navbar — schaltet zwischen Ollama-Modellen\n"
+                "- **Sprach-Ein/Ausgabe**: Mikrofon oben rechts — Whisper STT lokal + edge-tts Conrad Neural\n"
                 "\n\n## Antwort-Stil\n"
                 "- KÜRZE ÜBER ALLES. Einfache Antwort: 1-2 Sätze. Nie mehr als nötig.\n"
                 "- KEIN Smalltalk. Kein 'Natürlich!', 'Gerne!', 'Sehr gerne!', 'Absolut!', 'Verstanden, ich werde...'.\n"
@@ -279,8 +295,16 @@ class JarvisCEO:
         self._client = anthropic.Anthropic(api_key=get_api_key())
         self.history: list[dict] = []
 
+    def _trim_history(self) -> None:
+        """Hält die History unter 40 Einträgen — verhindert Context-Bloat bei Overnight-Sessions."""
+        if len(self.history) > 40:
+            # Behalte die letzten 30 Einträge (15 user-assistant Runden)
+            self.history = self.history[-30:]
+            log.warn("History getrimmt auf 30 Einträge (Overnight-Schutz)")
+
     def stream(self, user_message: str):
         """Generator — yields SSE strings. Nutzt echtes Streaming fuer sofortige Token."""
+        self._trim_history()
         self.history.append({"role": "user", "content": user_message})
         messages = list(self.history)
 
@@ -301,7 +325,7 @@ class JarvisCEO:
             try:
                 with self._client.messages.stream(
                     model=CEO_MODEL,
-                    max_tokens=4096,
+                    max_tokens=8192,
                     system=CEO_SYSTEM,
                     tools=TOOL_DEFINITIONS,
                     messages=messages,
@@ -431,12 +455,11 @@ class JarvisCEO:
                     try:
                         # Langsame Tools (local_ai_worker, Browser) im Thread —
                         # so können SSE-Keepalives gesendet werden
-                        import concurrent.futures as _cf
                         with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
                             _fut = _pool.submit(execute_tool, tool_name, tool_input)
                             while not _fut.done():
                                 yield ": keepalive\n\n"   # SSE-Comment hält Verbindung offen
-                                import time as _t; _t.sleep(2)
+                                time.sleep(2)
                             result = _fut.result()
                     except Exception as exc:
                         result = f"Tool-Fehler: {exc}"

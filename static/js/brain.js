@@ -682,9 +682,16 @@
     setInterval(_tickSessionClock, 1000);
     _tickSessionClock();
     /* Wait for layout to complete before sizing canvas */
-    requestAnimationFrame(() => requestAnimationFrame(() =>
-      initKnowledge(document.getElementById('brain-canvas'))
-    ));
+    function tryInit(attempt) {
+      const c = document.getElementById('brain-canvas');
+      const w = c && c.parentElement ? c.parentElement.clientWidth : 0;
+      if (w > 0 || attempt >= 8) {
+        initKnowledge(c);
+      } else {
+        setTimeout(() => tryInit(attempt + 1), 80);
+      }
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => tryInit(0)));
   });
 
 })();

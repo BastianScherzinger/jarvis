@@ -429,7 +429,15 @@ class JarvisCEO:
 
                     t0 = time.time()
                     try:
-                        result = execute_tool(tool_name, tool_input)
+                        # Langsame Tools (local_ai_worker, Browser) im Thread —
+                        # so können SSE-Keepalives gesendet werden
+                        import concurrent.futures as _cf
+                        with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
+                            _fut = _pool.submit(execute_tool, tool_name, tool_input)
+                            while not _fut.done():
+                                yield ": keepalive\n\n"   # SSE-Comment hält Verbindung offen
+                                import time as _t; _t.sleep(2)
+                            result = _fut.result()
                     except Exception as exc:
                         result = f"Tool-Fehler: {exc}"
                         log.tool_error(tool_name, str(exc))

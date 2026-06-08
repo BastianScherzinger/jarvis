@@ -786,21 +786,57 @@ def _search_web(query: str, max_results: int = 5) -> str:
 
 
 def _local_ai_worker(task: str, system: str = "", model: str = "") -> str:
-    """Sendet einen Prompt an das lokale Ollama-Modell (localhost:11434)."""
+    """Sendet einen Prompt an das lokale Ollama-Modell (127.0.0.1:11434)."""
     import os, json as _json
     from urllib.request import urlopen, Request
     from urllib.error import URLError
 
+    BASE = "http://127.0.0.1:11434"
     model = model.strip() or os.getenv("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
+
+    # ── Schneller Erreichbarkeits-Check (3s) ────────────────────────
+    try:
+        with urlopen(f"{BASE}/api/tags", timeout=3):
+            pass
+    except Exception as e:
+        return (
+            f"Fehler: Ollama nicht erreichbar ({BASE}).\n"
+            f"Details: {e}\n"
+            f"Starte Ollama mit:  ollama serve"
+        )
+
+    # ── Modell verfügbar? ────────────────────────────────────────────
+    try:
+        with urlopen(f"{BASE}/api/tags", timeout=5) as r:
+            tags = _json.loads(r.read())
+        installed = [m["name"] for m in tags.get("models", [])]
+        # Normalisierung: "qwen2.5:7b" == "qwen2.5:7b" etc.
+        match = next((n for n in installed if n.split(":")[0] == model.split(":")[0] or n == model), None)
+        if not match:
+            return (
+                f"Fehler: Modell '{model}' ist nicht installiert.\n"
+                f"Installierte Modelle: {', '.join(installed) or 'keine'}\n"
+                f"Installieren mit:  ollama pull {model}"
+            )
+        model = match  # exakter Name verwenden
+    except Exception:
+        pass  # weiter versuchen
+
+    # ── Eigentlicher Inference-Request ──────────────────────────────
     messages = []
     if system.strip():
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": task})
 
-    payload = _json.dumps({"model": model, "messages": messages, "stream": False}).encode()
+    payload = _json.dumps({
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "keep_alive": "5m",   # Modell 5 Min im RAM halten
+    }).encode()
     try:
         req = Request(
-            "http://localhost:11434/api/chat",
+            f"{BASE}/api/chat",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -811,13 +847,13 @@ def _local_ai_worker(task: str, system: str = "", model: str = "") -> str:
         if not content:
             return f"Ollama ({model}): Keine Antwort erhalten."
         return f"[Lokales Modell: {model}]\n\n{content}"
-    except URLError:
+    except URLError as e:
         return (
-            f"Fehler: Ollama läuft nicht oder ist nicht erreichbar (localhost:11434).\n"
-            f"Starte Ollama mit: ollama serve"
+            f"Ollama-Verbindungsfehler ({model}): {e.reason}\n"
+            f"Ollama läuft unter {BASE} — prüfe ob das Modell {model} geladen werden kann."
         )
     except Exception as e:
-        return f"Ollama-Fehler ({model}): {e}"
+        return f"Ollama-Fehler ({model}): {type(e).__name__}: {e}"
 
 
 def _delegate(agent_key: str, task: str) -> str:

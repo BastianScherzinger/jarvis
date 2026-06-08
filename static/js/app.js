@@ -39,6 +39,126 @@ window.addEventListener("unhandledrejection", e => {
   console.error("[PROMISE-FEHLER]", e.reason);
 });
 
+/* ═══════════════════════ GLASS PANEL SYSTEM ════════════════════ */
+const _glassPanel = (() => {
+  const GAP  = 12;
+  const TB   = 52;   // topbar height + gap
+  let   zTop = 30;
+
+  /* Default positions — recalculated on each call */
+  function _defaults() {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const lw = 294, rw = 294;
+    const cw = Math.max(340, W - lw - rw - GAP * 4);
+    const ph = H - TB - GAP;
+    return {
+      'panel-left':   { x: GAP,                     y: TB, w: lw,  h: ph },
+      'panel-center': { x: GAP * 2 + lw,            y: TB, w: cw,  h: ph },
+      'panel-right':  { x: W - rw - GAP,            y: TB, w: rw,  h: ph },
+    };
+  }
+
+  /* Apply position to a panel element */
+  function _place(el, p) {
+    el.style.left   = p.x + 'px';
+    el.style.top    = p.y + 'px';
+    el.style.width  = p.w + 'px';
+    el.style.height = p.h + 'px';
+  }
+
+  /* Drag logic */
+  function _makeDraggable(panel) {
+    const handle = panel.querySelector('.panel-hdr');
+    if (!handle) return;
+    let active = false, ox = 0, oy = 0, px = 0, py = 0;
+
+    handle.addEventListener('mousedown', e => {
+      if (e.target.closest('button,input,select,textarea,a,.phdr-tab,.phdr-badge,.mdc-btn')) return;
+      active = true;
+      const r = panel.getBoundingClientRect();
+      ox = e.clientX; oy = e.clientY;
+      px = r.left;    py = r.top;
+      panel.classList.add('dragging');
+      panel.style.zIndex = ++zTop;
+      panel.dataset.dragged = '1';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (!active) return;
+      panel.style.left = (px + e.clientX - ox) + 'px';
+      panel.style.top  = Math.max(0, py + e.clientY - oy) + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!active) return;
+      active = false;
+      panel.classList.remove('dragging');
+    });
+
+    /* Raise on click */
+    panel.addEventListener('mousedown', () => {
+      panel.style.zIndex = ++zTop;
+    });
+  }
+
+  /* 3-D tilt + shimmer */
+  function _makeTilting(panel) {
+    const MAX = 6;
+    let inside = false;
+
+    panel.addEventListener('mouseenter', () => {
+      inside = true;
+      panel.style.transition =
+        'border-color .22s, box-shadow .22s, transform .08s ease-out, filter .22s';
+    });
+
+    panel.addEventListener('mouseleave', () => {
+      inside = false;
+      panel.style.transition =
+        'border-color .22s, box-shadow .22s, transform .55s cubic-bezier(.12,.82,.18,1), filter .22s';
+      panel.style.transform = 'perspective(1300px) rotateX(0deg) rotateY(0deg)';
+      panel.style.removeProperty('--mx');
+      panel.style.removeProperty('--my');
+    });
+
+    panel.addEventListener('mousemove', e => {
+      const r   = panel.getBoundingClientRect();
+      const mx  = ((e.clientX - r.left) / r.width  * 100).toFixed(1) + '%';
+      const my  = ((e.clientY - r.top)  / r.height * 100).toFixed(1) + '%';
+      panel.style.setProperty('--mx', mx);
+      panel.style.setProperty('--my', my);
+      if (!inside || panel.classList.contains('dragging')) return;
+      const dx = (e.clientX - r.left - r.width  / 2) / (r.width  / 2);
+      const dy = (e.clientY - r.top  - r.height / 2) / (r.height / 2);
+      panel.style.transform =
+        `perspective(1300px) rotateX(${(-dy * MAX).toFixed(2)}deg) rotateY(${(dx * MAX).toFixed(2)}deg)`;
+    });
+  }
+
+  /* Public init */
+  function init() {
+    const defs = _defaults();
+    document.querySelectorAll('.glass-block').forEach(p => {
+      const id = p.id;
+      if (defs[id]) _place(p, defs[id]);
+      _makeDraggable(p);
+      _makeTilting(p);
+    });
+
+    window.addEventListener('resize', () => {
+      const d = _defaults();
+      document.querySelectorAll('.glass-block').forEach(p => {
+        if (p.dataset.dragged) return;   // user moved it — keep position
+        if (d[p.id]) _place(p, d[p.id]);
+      });
+    });
+  }
+
+  return { init };
+})();
+
 /* ═══════════════════════ INIT ═══════════════════════════════════ */
 document.addEventListener("DOMContentLoaded", () => {
   console.log("[JARVIS] DOMContentLoaded — init start");
@@ -51,8 +171,9 @@ document.addEventListener("DOMContentLoaded", () => {
   } catch (e) {
     console.warn("[JARVIS] marked config fehlgeschlagen:", e);
   }
+  _glassPanel.init();  // Floating draggable glass panels
   vrInit();
-  loadModels();   // Module-Status beim Start laden
+  loadModels();
   console.log("[JARVIS] init komplett");
 });
 

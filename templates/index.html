@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css"/>
-  <link rel="stylesheet" href="/static/css/style.css?v=6"/>
+  <link rel="stylesheet" href="/static/css/style.css?v=7"/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 </head>
 <body>
@@ -95,11 +95,11 @@
   </div>
 </div>
 
-<!-- ══════════════ MAIN GRID ══════════════════════════════════════════ -->
-<div class="hud-grid">
+<!-- ══════════════ FLOATING GLASS PANELS ═══════════════════════════ -->
 
   <!-- LEFT PANEL -->
-  <aside class="hud-panel panel-left">
+  <aside class="hud-panel panel-left glass-block" id="panel-left">
+    <div class="panel-corner-tl"></div>
     <div class="panel-corner-br"></div>
     <div class="holo-stripe"></div>
 
@@ -155,7 +155,8 @@
   </aside>
 
   <!-- CENTER PANEL -->
-  <main class="hud-panel panel-center">
+  <main class="hud-panel panel-center glass-block" id="panel-center">
+    <div class="panel-corner-tl"></div>
     <div class="panel-corner-br"></div>
 
     <div class="panel-hdr">
@@ -231,7 +232,8 @@
   </main>
 
   <!-- RIGHT PANEL -->
-  <aside class="hud-panel panel-right">
+  <aside class="hud-panel panel-right glass-block" id="panel-right">
+    <div class="panel-corner-tl"></div>
     <div class="panel-corner-br"></div>
     <div class="holo-stripe" style="animation-delay:2s"></div>
 
@@ -284,8 +286,6 @@
     </div>
   </aside>
 
-</div>
-
 <!-- File viewer modal -->
 <div class="modal-overlay" id="modal" onclick="closeModal()">
   <div class="modal" onclick="event.stopPropagation()">
@@ -304,7 +304,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="/static/js/brain.js"></script>
-<script src="/static/js/app.js?v=15"></script>
+<script src="/static/js/app.js?v=16"></script>
 
 <!-- ══════════════ THREE.JS NEXUS BACKGROUND ═════════════════════════ -->
 <script>
@@ -662,7 +662,7 @@
       h(ParticleCanvas),
       h(DataLabels),
       h(ArcPulseRings),
-      h(NexusLines),
+      // NexusLines entfernt — floating glass panels brauchen keine fixen Divider
     );
   }
 

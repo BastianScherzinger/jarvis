@@ -42,20 +42,248 @@ window.addEventListener("unhandledrejection", e => {
 /* ═══════════════════════ INIT ═══════════════════════════════════ */
 document.addEventListener("DOMContentLoaded", () => {
   console.log("[JARVIS] DOMContentLoaded — init start");
-  // marked v5+ API: use() statt setOptions()
   try {
     if (typeof marked.use === "function") {
       marked.use({ breaks: true, gfm: true });
     } else if (typeof marked.setOptions === "function") {
       marked.setOptions({ breaks: true, gfm: true });
     }
-    console.log("[JARVIS] marked OK");
   } catch (e) {
     console.warn("[JARVIS] marked config fehlgeschlagen:", e);
   }
   vrInit();
+  loadModels();   // Module-Status beim Start laden
   console.log("[JARVIS] init komplett");
 });
+
+/* ═══════════════════════ SATELLITE VIEW ═════════════════════════ */
+let _satActive = false;
+
+// Topbar SAT-Button
+function toggleSatelliteModal() {
+  _satActive ? deactivateSatView() : activateSatView();
+}
+
+// Logo-Bereich Toggle-Button
+function toggleSatelliteView() {
+  _satActive ? deactivateSatView() : activateSatView();
+}
+
+function activateSatView() {
+  _satActive = true;
+  const logo     = document.getElementById("rp-logo");
+  const scanline = document.getElementById("rp-scanline");
+  const map      = document.getElementById("jarvis-map");
+  const ctrl     = document.getElementById("rp-sat-ctrl");
+  const satBtn   = document.getElementById("sat-btn");
+  const toggle   = document.getElementById("rp-sat-toggle");
+
+  if (logo)     logo.style.display    = "none";
+  if (scanline) scanline.style.display = "none";
+  if (map)      map.style.display     = "block";
+  if (ctrl)     ctrl.style.display    = "flex";
+  if (satBtn)   satBtn.classList.add("active");
+  if (toggle)   toggle.classList.add("active");
+
+  // Google Maps resize triggern wenn bereits geladen
+  if (window._jarvisMap && typeof google !== "undefined") {
+    setTimeout(() => google.maps.event.trigger(window._jarvisMap, "resize"), 80);
+  }
+  showToast("Satelliten-Ansicht aktiviert");
+}
+
+function deactivateSatView() {
+  _satActive = false;
+  const logo     = document.getElementById("rp-logo");
+  const scanline = document.getElementById("rp-scanline");
+  const map      = document.getElementById("jarvis-map");
+  const ctrl     = document.getElementById("rp-sat-ctrl");
+  const satBtn   = document.getElementById("sat-btn");
+  const toggle   = document.getElementById("rp-sat-toggle");
+
+  if (logo)     logo.style.display    = "";
+  if (scanline) scanline.style.display = "";
+  if (map)      map.style.display     = "none";
+  if (ctrl)     ctrl.style.display    = "none";
+  if (satBtn)   satBtn.classList.remove("active");
+  if (toggle)   toggle.classList.remove("active");
+  showToast("Logo-Ansicht");
+}
+
+function _checkSatKeyword(text) {
+  if (/satellit|satellite|sat[- ]?view|planet[- ]?view|weltall|orbit|karte|map\s/i.test(text)) {
+    setTimeout(_showSatPrompt, 700);
+  }
+}
+
+function _showSatPrompt() {
+  if (_satActive) return;
+  const msgArea = document.getElementById("messages");
+  if (!msgArea || msgArea.style.display === "none") return;
+  const ex = document.getElementById("sat-prompt-card");
+  if (ex) ex.remove();
+
+  const div = document.createElement("div");
+  div.className = "message assistant";
+  div.id = "sat-prompt-card";
+  div.innerHTML = `
+    <div class="msg-av jarvis">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+        <polygon points="10,2 18,6.5 18,13.5 10,18 2,13.5 2,6.5" stroke="currentColor" stroke-width="1.5" fill="none"/>
+        <circle cx="10" cy="10" r="2.5" fill="currentColor" opacity=".6"/>
+      </svg>
+    </div>
+    <div class="msg-body">
+      <span class="msg-name">JARVIS</span>
+      <div class="msg-bubble">
+        Soll ich die Satelliten-Ansicht aktivieren, Sir?
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button onclick="confirmSat(true)" class="sat-confirm-btn sat-yes">JA — AKTIVIEREN</button>
+          <button onclick="confirmSat(false)" class="sat-confirm-btn sat-no">NEIN</button>
+        </div>
+      </div>
+      <span class="msg-time">${ts()}</span>
+    </div>`;
+  msgArea.appendChild(div);
+  scrollMessages();
+}
+
+function confirmSat(yes) {
+  const card = document.getElementById("sat-prompt-card");
+  if (card) card.remove();
+  if (yes) activateSatView();
+}
+
+/* ═══════════════════════ MODULE INSTALLER ════════════════════════ */
+let _modulePanelOpen     = false;
+let _installInProgress   = null;
+
+function toggleModulePanel() {
+  _modulePanelOpen = !_modulePanelOpen;
+  const body    = document.getElementById("module-body");
+  const chevron = document.getElementById("module-chevron");
+  if (body) {
+    body.style.maxHeight = _modulePanelOpen ? "460px" : "0px";
+    body.style.opacity   = _modulePanelOpen ? "1"     : "0";
+  }
+  if (chevron) chevron.textContent = _modulePanelOpen ? "▲" : "▼";
+  if (_modulePanelOpen) loadModels();
+}
+
+async function loadModels() {
+  try {
+    const data = await fetch("/api/models").then(r => r.json());
+
+    // Badge updaten (im geschlossenen Zustand sichtbar)
+    const active = data.models.find(m => m.active);
+    const badge  = document.getElementById("module-badge");
+    if (badge) badge.textContent = active ? active.key.toUpperCase() : "—";
+
+    if (!_modulePanelOpen) return; // Nur rendern wenn offen
+
+    const list = document.getElementById("module-list");
+    if (!list) return;
+
+    list.innerHTML = data.models.map(m => `
+      <div class="model-card ${m.active ? "mc-active" : ""}" id="mc-${m.key}">
+        <div class="mc-head">
+          <span class="mc-tier">T${m.tier}</span>
+          <div class="mc-info">
+            <span class="mc-id">${m.id}</span>
+            <span class="mc-desc">${m.desc} · ${m.vram}</span>
+          </div>
+          <div class="mc-right">
+            ${m.active
+              ? '<span class="mc-status-active">◉ AKTIV</span>'
+              : m.installed
+                ? `<button class="mc-btn mc-btn-sel" onclick="selectModel('${m.id}')">WÄHLEN</button>`
+                : `<button class="mc-btn mc-btn-inst" onclick="installModel('${m.id}')"${!m.ollama_ok ? ' disabled title="Ollama nicht installiert"' : ''}>LADEN</button>`
+            }
+          </div>
+        </div>
+        <div class="mc-progress-wrap" id="mcp-${m.key}" style="display:none">
+          <div class="mc-pbar-track"><div class="mc-pbar-fill" id="mcpf-${m.key}"></div></div>
+          <span class="mc-ptext" id="mcpt-${m.key}">Lade...</span>
+        </div>
+      </div>`).join("");
+  } catch(e) {
+    const list = document.getElementById("module-list");
+    if (list) list.innerHTML = `<div class="mc-loading" style="color:var(--danger)">Ladefehler: ${e.message}</div>`;
+  }
+}
+
+async function installModel(modelId) {
+  if (_installInProgress) { showToast("Installation läuft bereits..."); return; }
+  _installInProgress = modelId;
+
+  const data = await fetch("/api/models").then(r => r.json()).catch(() => null);
+  if (!data) { _installInProgress = null; return; }
+  const m = data.models.find(x => x.id === modelId);
+  if (!m)  { _installInProgress = null; return; }
+
+  const prog  = document.getElementById(`mcp-${m.key}`);
+  const ptext = document.getElementById(`mcpt-${m.key}`);
+  const pfill = document.getElementById(`mcpf-${m.key}`);
+  if (prog) prog.style.display = "block";
+  if (pfill) pfill.style.width = "5%";
+
+  try {
+    const resp    = await fetch("/api/models/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelId }),
+    });
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let   buf     = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const ev = JSON.parse(line.slice(6));
+          if (ev.text) {
+            if (ptext) ptext.textContent = ev.text.slice(0, 60);
+            const pm = ev.text.match(/(\d+)%/);
+            if (pm && pfill) pfill.style.width = pm[1] + "%";
+          }
+          if (ev.done) {
+            if (pfill) pfill.style.width = "100%";
+            showToast(`${modelId} bereit!`);
+            setTimeout(() => { if (prog) prog.style.display = "none"; loadModels(); }, 1200);
+          }
+          if (ev.error) {
+            showToast(`Fehler: ${ev.error}`);
+            if (prog) prog.style.display = "none";
+          }
+        } catch {}
+      }
+    }
+  } catch(e) {
+    showToast(`Fehler: ${e.message}`);
+    if (prog) prog.style.display = "none";
+  } finally {
+    _installInProgress = null;
+  }
+}
+
+async function selectModel(modelId) {
+  try {
+    const r = await fetch("/api/models/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelId }),
+    });
+    const d = await r.json();
+    if (d.ok) { showToast(`Aktiv: ${modelId}`); loadModels(); }
+    else       showToast(`Fehler: ${d.error}`);
+  } catch { showToast("Fehler beim Auswählen"); }
+}
 
 /* ═══════════════════════ SEND MESSAGE ═══════════════════════════ */
 let _streamAbort = null;
@@ -70,6 +298,7 @@ async function sendMessage() {
   autoResize(input);
   showChat();
   addMessage("user", text);
+  _checkSatKeyword(text);
 
   state.streaming = true;
   setStatus("active", "JARVIS denkt…");

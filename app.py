@@ -1,4 +1,4 @@
-import io
+﻿import io
 import wave
 import struct
 import math
@@ -22,10 +22,45 @@ logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 log.banner()
 
+# ── Bekannte Ollama-Modell-Tiers ───────────────────────────────────
+_MODELS = [
+    {"id": "llama3.2:1b",  "key": "tiny",    "name": "Llama 3.2 1B",  "desc": "Jede Hardware",   "vram": "~1 GB",  "tier": 1},
+    {"id": "qwen2.5:3b",   "key": "small",   "name": "Qwen 2.5 3B",   "desc": "Schwache PCs",    "vram": "~4 GB",  "tier": 2},
+    {"id": "qwen2.5:7b",   "key": "laptop",  "name": "Qwen 2.5 7B",   "desc": "Laptop",          "vram": "~8 GB",  "tier": 3},
+    {"id": "qwen2.5:14b",  "key": "medium",  "name": "Qwen 2.5 14B",  "desc": "Desktop 16 GB",   "vram": "~16 GB", "tier": 4},
+    {"id": "qwen2.5:32b",  "key": "large",   "name": "Qwen 2.5 32B",  "desc": "Desktop 32 GB",   "vram": "~32 GB", "tier": 5},
+    {"id": "llama3.3:70b", "key": "allware", "name": "Llama 3.3 70B", "desc": "High-End Server",  "vram": "~48 GB", "tier": 6},
+]
+
+
+def _check_ollama() -> None:
+    import shutil as _sh
+    local_model = os.environ.get("JARVIS_LOCAL_MODEL", "")
+    ollama_exe  = _sh.which("ollama")
+    GR = "\033[92m"; GY = "\033[90m"; R = "\033[0m"; YL = "\033[93m"
+    if ollama_exe and local_model:
+        try:
+            res = subprocess.run(
+                ["ollama", "list"], capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
+            )
+            if local_model.split(":")[0] in res.stdout:
+                print(f"  {GR}OK{R}  Ollama  {local_model}  {GY}(Fallback bereit){R}")
+            else:
+                log.warn(f"Ollama: '{local_model}' nicht gefunden — 'ollama pull {local_model}'")
+        except Exception as e:
+            log.warn(f"Ollama-Check fehlgeschlagen: {e}")
+    elif ollama_exe:
+        print(f"  {YL}!{R}   Ollama vorhanden — kein Modell gesetzt {GY}(JARVIS_LOCAL_MODEL fehlt){R}")
+    else:
+        print(f"  {GY}--  Ollama: nicht installiert — kein lokaler Fallback{R}")
+
+_check_ollama()
+
 app     = Flask(__name__)
 jarvis  = JarvisCEO()
 
-# ── STT: faster-whisper (lokal) mit Google-Fallback ────────────────
+# â”€â”€ STT: faster-whisper (lokal) mit Google-Fallback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _whisper       = None
 _whisper_ready = False
 
@@ -38,11 +73,11 @@ def _load_whisper() -> None:
         _whisper = WhisperModel(model_size, device="cpu", compute_type="int8")
         _whisper_ready = True
     except ImportError:
-        pass        # kein faster-whisper installiert → Google-Fallback
+        pass        # kein faster-whisper installiert â†’ Google-Fallback
     except Exception as e:
         log.warn(f"Whisper-Ladefehler: {e}")
 
-# Whisper im Hintergrund laden — blockiert den Start nicht
+# Whisper im Hintergrund laden â€” blockiert den Start nicht
 threading.Thread(target=_load_whisper, daemon=True).start()
 
 # Google-Fallback
@@ -60,7 +95,7 @@ def _get_ffmpeg() -> str:
         import imageio_ffmpeg
         return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
-        raise FileNotFoundError("ffmpeg nicht gefunden — pip install imageio-ffmpeg")
+        raise FileNotFoundError("ffmpeg nicht gefunden â€” pip install imageio-ffmpeg")
 
 
 def _webm_to_wav(webm_bytes: bytes, rate: int = 16000) -> bytes:
@@ -114,6 +149,11 @@ def _transcribe_whisper(buf: io.BytesIO, lang: str) -> str:
 def index():
     return render_template("index.html")
 
+@app.route("/api/maps-key")
+def maps_key():
+    key = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+    return jsonify({"key": key})
+
 
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
@@ -145,7 +185,7 @@ def voice_transcribe():
         log.voice_error(f"Zu wenig Audio ({len(body)} B)")
         return jsonify({"text": "", "error": "Zu wenig Audio-Daten"}), 400
 
-    # ── Audio in WAV umwandeln ────────────────────────────────────────
+    # â”€â”€ Audio in WAV umwandeln â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if "webm" in content_type or "ogg" in content_type:
         try:
             wav_bytes = _webm_to_wav(body)
@@ -180,20 +220,20 @@ def voice_transcribe():
     except Exception:
         buf.seek(0)
 
-    # ── RMS-Mindestpegel: zu leise = kein Sprach-Signal ─────────────
+    # â”€â”€ RMS-Mindestpegel: zu leise = kein Sprach-Signal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     duration_s = frames / rate_w if rate_w else 0
     if rms < 400:
         log.voice_nothing()
         return jsonify({"text": "", "error": "Zu leise"})
-    # Lange + leise Aufnahme = sehr wahrscheinlich Umgebungslärm (Whisper halluziniert)
+    # Lange + leise Aufnahme = sehr wahrscheinlich UmgebungslÃ¤rm (Whisper halluziniert)
     if duration_s > 12.0 and rms < 1800:
         log.voice_nothing()
         return jsonify({"text": "", "error": "Zu lang + zu leise (Umgebung)"})
 
-    # ── Transkription ────────────────────────────────────────────────
+    # â”€â”€ Transkription â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try:
         if _whisper_ready and _whisper is not None:
-            # Lokal — schnell, kein Netz
+            # Lokal â€” schnell, kein Netz
             text = _transcribe_whisper(buf, lang)
             backend = "lokal"
         else:
@@ -223,7 +263,7 @@ def voice_transcribe():
 
 @app.route("/api/knowledge")
 def api_knowledge():
-    """Jede Info aus .md-Dateien als eigener Node — für maximale Sphere-Dichte."""
+    """Jede Info aus .md-Dateien als eigener Node â€” fÃ¼r maximale Sphere-Dichte."""
     import re as _re
     nodes = []
 
@@ -318,7 +358,7 @@ def api_workspace():
 @app.route("/api/workspace/<folder>/<path:filename>")
 def api_workspace_file(folder, filename):
     if folder not in ("tasks", "results"):
-        return jsonify({"error": "Ungültiger Ordner"}), 403
+        return jsonify({"error": "UngÃ¼ltiger Ordner"}), 403
     base = WORKSPACE_TASKS if folder == "tasks" else WORKSPACE_RESULTS
     p = (base / filename).resolve()
     if not p.exists() or not str(p).startswith(str(base.resolve())):
@@ -385,8 +425,98 @@ def api_status():
     })
 
 
+@app.route("/api/models")
+def api_models():
+    import shutil as _sh
+    ollama_ok   = _sh.which("ollama") is not None
+    active      = os.environ.get("JARVIS_LOCAL_MODEL", "")
+    installed   = set()
+
+    if ollama_ok:
+        try:
+            res = subprocess.run(
+                ["ollama", "list"], capture_output=True, text=True, timeout=6,
+                encoding="utf-8", errors="replace",
+            )
+            for line in res.stdout.splitlines():
+                parts = line.split()
+                if not parts: continue
+                for m in _MODELS:
+                    if m["id"].split(":")[0] == parts[0].split(":")[0]:
+                        installed.add(m["id"])
+        except Exception:
+            pass
+
+    out = [{**m, "installed": m["id"] in installed,
+             "active": m["id"] == active, "ollama_ok": ollama_ok}
+           for m in _MODELS]
+    return jsonify({"models": out, "active": active, "ollama": ollama_ok})
+
+
+@app.route("/api/models/install", methods=["POST"])
+def api_models_install():
+    data     = request.get_json() or {}
+    model_id = data.get("model", "").strip()
+    if model_id not in {m["id"] for m in _MODELS}:
+        return jsonify({"error": "Unbekanntes Modell"}), 400
+
+    def _stream():
+        import shutil as _sh
+        if not _sh.which("ollama"):
+            yield f"data: {json.dumps({'error': 'Ollama nicht installiert — https://ollama.com'})}\n\n"
+            return
+        yield f"data: {json.dumps({'text': f'Starte Download: {model_id}'})}\n\n"
+        try:
+            proc = subprocess.Popen(
+                ["ollama", "pull", model_id],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+            )
+            for line in (proc.stdout or []):
+                stripped = line.strip()
+                if stripped:
+                    yield f"data: {json.dumps({'text': stripped[:120]})}\n\n"
+            proc.wait()
+            if proc.returncode == 0:
+                log.warn(f"Ollama: '{model_id}' installiert")
+                yield f"data: {json.dumps({'done': True, 'model': model_id})}\n\n"
+            else:
+                yield f"data: {json.dumps({'error': 'Download fehlgeschlagen'})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return Response(
+        stream_with_context(_stream()),
+        content_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
+@app.route("/api/models/select", methods=["POST"])
+def api_models_select():
+    import re as _re
+    data     = request.get_json() or {}
+    model_id = data.get("model", "").strip()
+    if model_id not in {m["id"] for m in _MODELS}:
+        return jsonify({"error": "Unbekanntes Modell"}), 400
+
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        content = env_path.read_text(encoding="utf-8")
+        if "JARVIS_LOCAL_MODEL=" in content:
+            content = _re.sub(r"JARVIS_LOCAL_MODEL=.*", f"JARVIS_LOCAL_MODEL={model_id}", content)
+        else:
+            content += f"\nJARVIS_LOCAL_MODEL={model_id}\n"
+        env_path.write_text(content, encoding="utf-8")
+
+    os.environ["JARVIS_LOCAL_MODEL"] = model_id
+    log.warn(f"Lokales Modell gewechselt → {model_id}")
+    return jsonify({"ok": True, "model": model_id})
+
+
 if __name__ == "__main__":
     stt_label = "faster-whisper/base (wird geladen...)" if not _whisper_ready else f"faster-whisper/{os.getenv('JARVIS_STT_MODEL','base')}"
     log.server_ready(5000)
     print(f"  \033[90mTTS: {tts.backend_name()}  |  STT: {stt_label}\033[0m\n")
     app.run(debug=False, port=5000, threaded=True)
+

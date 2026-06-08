@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
@@ -9,6 +9,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css"/>
   <link rel="stylesheet" href="/static/css/style.css"/>
+  <script>
+    // Google Maps API key wird dynamisch geladen
+    window._mapsKeyLoaded = false;
+  </script>
 </head>
 <body>
 
@@ -39,6 +43,16 @@
       <div class="arc-core"></div>
     </div>
     <span class="tb-name">J.A.R.V.I.S</span>
+    <button class="sat-btn" id="sat-btn" onclick="toggleSatelliteModal()" title="Satellite View">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M6.3 6.3a8 8 0 0 0 0 11.4"/>
+        <path d="M17.7 6.3a8 8 0 0 1 0 11.4"/>
+        <path d="M3.5 3.5a14 14 0 0 0 0 17"/>
+        <path d="M20.5 3.5a14 14 0 0 1 0 17"/>
+      </svg>
+      SAT
+    </button>
   </div>
 
   <div class="tb-center">
@@ -89,31 +103,15 @@
   ───────────────────────────────────────────────────────────────── -->
   <aside class="hud-panel panel-left">
 
-    <!-- Knowledge Sphere -->
+    <!-- Neural Core / Knowledge Sphere -->
     <div class="panel-hdr">
-      <span class="phdr-title">KNOWLEDGE CORE</span>
-      <span class="phdr-badge">LIVE</span>
+      <span class="phdr-title">NEURAL CORE</span>
+      <span class="phdr-badge" id="neural-badge">LIVE</span>
     </div>
-    <div class="brain-wrap" id="brain-wrap">
-      <canvas id="brain-canvas"></canvas>
-      <div class="brain-outer-ring"></div>
-      <div class="brain-inner-ring"></div>
-      <div class="brain-cross hc"></div>
-      <div class="brain-cross vc"></div>
-    </div>
-    <div class="brain-stats">
-      <div class="bstat">
-        <span class="bstat-val" id="brain-nodes">—</span>
-        <span class="bstat-key">FILES</span>
-      </div>
-      <div class="bstat">
-        <span class="bstat-val" id="brain-conn">—</span>
-        <span class="bstat-key">SECTIONS</span>
-      </div>
-      <div class="bstat">
-        <span class="bstat-val" id="brain-mem">—</span>
-        <span class="bstat-key">MEMORY</span>
-      </div>
+    <div class="knowledge-wrap" id="knowledge-wrap">
+      <canvas id="knowledge-canvas"></canvas>
+      <div id="k-tooltip" class="k-tooltip" style="display:none"></div>
+      <div id="k-pin-label" class="k-pin-label" style="display:none"></div>
     </div>
 
     <!-- Session Stats -->
@@ -179,6 +177,20 @@
         <span class="ss-val" style="color:var(--text-3)">200,000</span>
       </div>
 
+    </div>
+
+    <!-- KI Module Installer -->
+    <div class="module-section">
+      <div class="module-hdr" onclick="toggleModulePanel()">
+        <span class="phdr-title" style="font-size:10px;letter-spacing:0.18em">KI MODULE</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="phdr-badge" id="module-badge">—</span>
+          <span class="module-chevron" id="module-chevron">▼</span>
+        </div>
+      </div>
+      <div class="module-body" id="module-body">
+        <div id="module-list"><div class="mc-loading">Klick zum Laden...</div></div>
+      </div>
     </div>
 
   </aside>
@@ -286,10 +298,30 @@
   ───────────────────────────────────────────────────────────────── -->
   <aside class="hud-panel panel-right">
 
-    <!-- ── TOP HALF: JARVIS Logo ── -->
+    <!-- ── TOP HALF: JARVIS Logo / Satellite View ── -->
     <div class="rp-img-wrap" id="rp-img-wrap">
+      <!-- Default: Logo -->
       <img src="/static/img/logojarvis.png" alt="JARVIS" class="rp-logo-img" id="rp-logo"/>
-      <div class="rp-img-scanline"></div>
+      <div class="rp-img-scanline" id="rp-scanline"></div>
+
+      <!-- Satellite: Google Maps (ersetzt Logo) -->
+      <div id="jarvis-map"></div>
+
+      <!-- Satellite HUD Overlay (Koordinaten + Stadtsuche) -->
+      <div class="rp-sat-ctrl" id="rp-sat-ctrl">
+        <div class="sat-ctrl-top">
+          <span class="sat-label">◉ SATELLITE</span>
+          <span class="sat-badge" id="map-badge">EARTH</span>
+        </div>
+        <div class="sat-city-row">
+          <input type="text" id="map-city-input" class="sat-city-inp" placeholder="Stadt oder Koordinaten..."/>
+          <button class="sat-go-btn" onclick="mapGoToCity()">→</button>
+        </div>
+        <div class="sat-coords" id="map-coords">LAT 48.1351  LON 11.5820</div>
+      </div>
+
+      <!-- Toggle-Button oben rechts (immer sichtbar) -->
+      <button class="rp-sat-toggle" id="rp-sat-toggle" onclick="toggleSatelliteView()" title="Satelliten-Ansicht">◉</button>
     </div>
 
     <!-- ── BOTTOM HALF: Feed ── -->
@@ -352,6 +384,68 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="/static/js/brain.js"></script>
-<script src="/static/js/app.js?v=10"></script>
+<script src="/static/js/app.js?v=11"></script>
+<!-- Google Maps Satellite -->
+<script>
+function initJarvisMap() {
+  const defaultPos = { lat: 48.1351, lng: 11.5820 }; // München
+  const map = new google.maps.Map(document.getElementById("jarvis-map"), {
+    center: defaultPos,
+    zoom: 5,
+    mapTypeId: "satellite",
+    tilt: 45,
+    disableDefaultUI: true,
+    zoomControl: true,
+    styles: []
+  });
+  window._jarvisMap = map;
+
+  // Koordinaten-Anzeige updaten
+  map.addListener("center_changed", function() {
+    const c = map.getCenter();
+    const lat = c.lat().toFixed(4);
+    const lng = c.lng().toFixed(4);
+    const el = document.getElementById("map-coords");
+    if (el) el.textContent = "LAT " + lat + "  LON " + lng;
+  });
+}
+
+function mapGoToCity() {
+  const input = document.getElementById("map-city-input");
+  const city = input ? input.value.trim() : "";
+  if (!city || !window._jarvisMap) return;
+
+  const geocoder = new google.maps.Geocoder();
+  geocoder.geocode({ address: city }, function(results, status) {
+    if (status === "OK" && results[0]) {
+      window._jarvisMap.setCenter(results[0].geometry.location);
+      window._jarvisMap.setZoom(12);
+      document.getElementById("map-badge").textContent = city.toUpperCase().substring(0,8);
+    }
+  });
+}
+
+// Enter-Taste im Stadtfeld
+document.addEventListener("DOMContentLoaded", function() {
+  const inp = document.getElementById("map-city-input");
+  if (inp) inp.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") mapGoToCity();
+  });
+
+  // Key laden und Maps API einbinden
+  fetch("/api/maps-key").then(r => r.json()).then(data => {
+    if (!data.key) return;
+    const s = document.createElement("script");
+    s.src = "https://maps.googleapis.com/maps/api/js?key=" + data.key + "&callback=initJarvisMap";
+    s.async = true;
+    s.defer = true;
+    document.head.appendChild(s);
+  });
+});
+</script>
 </body>
 </html>
+
+
+
+

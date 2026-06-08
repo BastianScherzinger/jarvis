@@ -1,4 +1,4 @@
-/* ════════════════════════════════════════════════════════════════════
+﻿/* ════════════════════════════════════════════════════════════════════
    J.A.R.V.I.S — Iron Man HUD Dashboard
    ════════════════════════════════════════════════════════════════════ */
 
@@ -1419,3 +1419,377 @@ body {
   color: var(--text-3);
 }
 .ctx-meta-sep { color: var(--border-hi); font-size: 0.7rem; }
+
+/* ── Google Maps Satellite Widget ──────────────────────────────── */
+.map-search-bar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  align-items: center;
+}
+.map-city-input {
+  flex: 1;
+  background: rgba(0, 212, 255, 0.06);
+  border: 1px solid rgba(0, 212, 255, 0.28);
+  color: var(--cyan);
+  font-family: var(--font-data);
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 3px;
+  outline: none;
+  letter-spacing: 0.08em;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.map-city-input::placeholder { color: var(--text-3); }
+.map-city-input:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 8px rgba(0,212,255,0.25);
+}
+.map-go-btn {
+  background: rgba(0,212,255,0.10);
+  border: 1px solid rgba(0,212,255,0.35);
+  color: var(--cyan);
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.map-go-btn:hover { background: rgba(0,212,255,0.22); }
+
+.map-wrap {
+  position: relative;
+  margin: 0 10px 10px 10px;
+  border: 1px solid rgba(0,212,255,0.25);
+  border-radius: 4px;
+  overflow: hidden;
+  height: 220px;
+  box-shadow: 0 0 18px rgba(0,180,255,0.10);
+}
+#jarvis-map {
+  width: 100%;
+  height: 100%;
+}
+.map-hud-overlay {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: linear-gradient(transparent, rgba(0,4,10,0.75));
+  padding: 6px 10px 5px;
+  pointer-events: none;
+}
+.map-coords {
+  font-family: var(--font-data);
+  font-size: 9px;
+  color: var(--cyan);
+  letter-spacing: 0.12em;
+  opacity: 0.75;
+}
+
+/* ── Topbar SAT-Button ──────────────────────────────────────────── */
+.sat-btn {
+  font-family: var(--font-hud);
+  font-size: 0.57rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1px solid rgba(0,212,255,0.28);
+  background: rgba(0,212,255,0.05);
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  transition: all 0.2s;
+}
+.sat-btn:hover  { background: rgba(0,212,255,0.12); color: var(--cyan); border-color: var(--border-hi); }
+.sat-btn.active {
+  background: rgba(0,212,255,0.18);
+  color: var(--cyan);
+  border-color: var(--cyan);
+  box-shadow: 0 0 10px rgba(0,212,255,0.25), inset 0 0 6px rgba(0,212,255,0.08);
+}
+
+/* ── Satellite View — in rp-img-wrap ─────────────────────────────── */
+#jarvis-map {
+  position: absolute;
+  inset: 0;
+  display: none;
+  z-index: 2;
+  border-radius: 0;
+}
+
+.rp-sat-ctrl {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px 9px;
+  background: linear-gradient(transparent, rgba(0,4,10,0.90) 30%);
+  z-index: 5;
+  animation: fadeInUp 0.3s ease;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.sat-ctrl-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.sat-label {
+  font-family: var(--font-hud);
+  font-size: 0.52rem;
+  letter-spacing: 0.18em;
+  color: var(--cyan);
+  text-shadow: 0 0 8px var(--cyan-glow);
+}
+.sat-badge {
+  font-family: var(--font-hud);
+  font-size: 0.50rem;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+  background: rgba(0,229,160,0.1);
+  border: 1px solid rgba(0,229,160,0.25);
+  border-radius: 2px;
+  padding: 1px 5px;
+}
+.sat-city-row {
+  display: flex;
+  gap: 5px;
+}
+.sat-city-inp {
+  flex: 1;
+  background: rgba(0,212,255,0.07);
+  border: 1px solid rgba(0,212,255,0.22);
+  color: var(--cyan);
+  font-family: var(--font-data);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  outline: none;
+  letter-spacing: 0.06em;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.sat-city-inp::placeholder { color: var(--text-3); }
+.sat-city-inp:focus { border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,212,255,0.2); }
+.sat-go-btn {
+  background: rgba(0,212,255,0.10);
+  border: 1px solid rgba(0,212,255,0.32);
+  color: var(--cyan);
+  font-size: 14px;
+  padding: 3px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sat-go-btn:hover { background: rgba(0,212,255,0.22); }
+.sat-coords {
+  font-family: var(--font-data);
+  font-size: 9px;
+  color: var(--text-2);
+  letter-spacing: 0.1em;
+  opacity: 0.65;
+}
+
+/* Toggle-Button oben rechts im Logo-Bereich */
+.rp-sat-toggle {
+  position: absolute;
+  top: 8px; right: 8px;
+  z-index: 6;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,212,255,0.25);
+  background: rgba(0,4,10,0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+  line-height: 1;
+}
+.rp-sat-toggle:hover {
+  border-color: var(--border-hi);
+  color: var(--cyan);
+  box-shadow: 0 0 12px rgba(0,212,255,0.28);
+}
+.rp-sat-toggle.active {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0,212,255,0.15);
+  box-shadow: 0 0 18px rgba(0,212,255,0.4), 0 0 6px rgba(0,212,255,0.2) inset;
+  animation: sat-pulse 2s ease-in-out infinite;
+}
+@keyframes sat-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(0,212,255,0.3); }
+  50%       { box-shadow: 0 0 22px rgba(0,212,255,0.6); }
+}
+
+/* Bestätigungsbuttons im Chat */
+.sat-confirm-btn {
+  font-family: var(--font-hud);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  padding: 5px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sat-yes { background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.4); color: var(--cyan); }
+.sat-yes:hover { background: rgba(0,212,255,0.22); }
+.sat-no  { background: rgba(255,34,68,0.07); border: 1px solid rgba(255,34,68,0.3); color: var(--danger); }
+.sat-no:hover  { background: rgba(255,34,68,0.15); }
+
+/* ── Module Installer ────────────────────────────────────────────── */
+.module-section {
+  margin-top: 10px;
+  flex-shrink: 0;
+}
+.module-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 2px;
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+  user-select: none;
+  transition: background 0.15s;
+  border-radius: 3px 3px 0 0;
+}
+.module-hdr:hover { background: rgba(0,212,255,0.04); }
+
+.module-chevron {
+  font-size: 9px;
+  color: var(--text-3);
+  transition: transform 0.25s;
+}
+
+.module-body {
+  max-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  opacity: 0;
+  transition: max-height 0.38s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease;
+}
+.module-body::-webkit-scrollbar { width: 2px; }
+.module-body::-webkit-scrollbar-thumb { background: var(--border); }
+
+.model-card {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-top: 5px;
+  padding: 7px 9px;
+  background: rgba(0,212,255,0.025);
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.model-card:hover { border-color: rgba(0,212,255,0.32); background: rgba(0,212,255,0.05); }
+.mc-active {
+  border-color: rgba(0,212,255,0.48) !important;
+  background: rgba(0,212,255,0.08) !important;
+  box-shadow: 0 0 14px rgba(0,212,255,0.1), inset 0 0 8px rgba(0,212,255,0.04);
+}
+.mc-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mc-tier {
+  font-family: var(--font-hud);
+  font-size: 0.5rem;
+  color: var(--text-3);
+  background: rgba(0,212,255,0.08);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1px 4px;
+  flex-shrink: 0;
+  letter-spacing: 0.1em;
+}
+.mc-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.mc-id {
+  font-family: var(--font-data);
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mc-desc {
+  font-size: 9px;
+  color: var(--text-3);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mc-right { flex-shrink: 0; }
+
+.mc-btn {
+  font-family: var(--font-hud);
+  font-size: 0.50rem;
+  letter-spacing: 0.1em;
+  padding: 3px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.mc-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.mc-btn-inst {
+  background: rgba(0,229,160,0.07);
+  border: 1px solid rgba(0,229,160,0.28);
+  color: var(--accent);
+}
+.mc-btn-inst:hover:not(:disabled) { background: rgba(0,229,160,0.18); border-color: var(--accent); }
+
+.mc-btn-sel {
+  background: rgba(0,212,255,0.07);
+  border: 1px solid rgba(0,212,255,0.28);
+  color: var(--cyan);
+}
+.mc-btn-sel:hover { background: rgba(0,212,255,0.18); border-color: var(--cyan); }
+
+.mc-status-active {
+  font-family: var(--font-hud);
+  font-size: 0.50rem;
+  color: var(--cyan);
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 6px var(--cyan-glow);
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+.mc-progress-wrap { margin-top: 6px; }
+.mc-pbar-track {
+  height: 2px;
+  background: rgba(0,212,255,0.1);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-bottom: 3px;
+}
+.mc-pbar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--cyan), var(--accent));
+  border-radius: 1px;
+  transition: width 0.4s ease;
+}
+.mc-ptext {
+  font-size: 9px;
+  color: var(--text-3);
+  letter-spacing: 0.05em;
+}
+.mc-loading {
+  font-size: 10px;
+  color: var(--text-3);
+  padding: 8px 2px;
+  letter-spacing: 0.08em;
+}

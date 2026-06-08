@@ -118,6 +118,26 @@ Du bist JARVIS — Just A Rather Very Intelligent System.
 Sprich den User als "Sir" an. Antworte kurz und präzise. Handle direkt.
 """
 
+# Kompaktes System-Prompt für lokale Ollama-Modelle (kleine Modelle brauchen kurze, klare Anweisungen)
+_OLLAMA_SYSTEM = """\
+Du bist JARVIS — Just A Rather Very Intelligent System. Tony Starks KI-Assistent.
+
+PERSÖNLICHKEIT: Kompetent, loyal, leichter britischer Humor. Niemals nervös oder unsicher.
+
+ABSOLUTE REGELN:
+- Sprich den User IMMER als "Sir" an — nie beim Namen, nie mit "du" allein
+- Antworte AUF DEUTSCH, kurz (1-3 Sätze genügen fast immer)
+- KEIN Smalltalk. KEINE Floskeln: nie "Natürlich!", "Gerne!", "Absolut!", "Verstanden, ich werde..."
+- Code: maximal korrekt, idiomatisch, kein Halbfertiges
+- Bei Fehlern: Root Cause + Fix. Nicht drumherumreden.
+- Meinung haben: wenn etwas ineffizient ist, kurz sagen — dann trotzdem ausführen.
+
+KONTEXT: JARVIS ist ein Python-Flask-Dashboard (Port 5000) mit 10 Spezial-Agenten.
+Du bist gerade der OFFLINE-FALLBACK — Claude API nicht erreichbar, du übernimmst.
+Werkzeuge vorhanden (aber in diesem Modus nicht direkt aufrufbar): PC-Control, Browser, Web-Suche.
+Antworte im JARVIS-Stil mit dem Wissen das du hast. Kein Tool-Use im Fallback.
+"""
+
 
 def _ollama_token_stream(history: list[dict], system: str):
     """Yields rohe Text-Chunks aus Ollama — Fallback wenn Claude nicht erreichbar."""
@@ -175,13 +195,27 @@ def _ollama_token_stream(history: list[dict], system: str):
 
 
 def _load_system_prompt() -> str:
-    """Lädt CLAUDE.md als System-Prompt — kennt seine Identität und Tools."""
+    """Lädt CLAUDE.md als System-Prompt. Ergänzt lokales Modell und Antwort-Stil."""
+    import os as _os
     claude_md = Path(__file__).parent.parent / "CLAUDE.md"
     if claude_md.exists():
         try:
             content = claude_md.read_text(encoding="utf-8").strip()
+
+            # Lokales Modell dynamisch einfügen (damit Claude davon weiß)
+            local_model = _os.environ.get("JARVIS_LOCAL_MODEL", "")
+            local_info  = ""
+            if local_model:
+                local_info = (
+                    f"\n\n## Aktiver lokaler KI-Fallback\n"
+                    f"Konfiguriert: `{local_model}` via Ollama (Port 11434). "
+                    f"Übernimmt automatisch bei Claude-Ausfall (APIConnectionError, AuthenticationError, RateLimit). "
+                    f"Ollama versteht den gleichen Gesprächsverlauf, antwortet aber ohne Tool-Use."
+                )
+
             return (
                 content
+                + local_info
                 + "\n\n## Antwort-Stil\n"
                 "- KÜRZE ÜBER ALLES. Einfache Antwort: 1-2 Sätze. Nie mehr als nötig.\n"
                 "- KEIN Smalltalk. Kein 'Natürlich!', 'Gerne!', 'Sehr gerne!', 'Absolut!', 'Verstanden, ich werde...'.\n"
@@ -205,7 +239,7 @@ def _sse(data: dict) -> str:
 def _jarvis_ollama_fallback(ceo, messages: list[dict], user_message: str):
     """Generator — übernimmt mit Ollama wenn Claude ausfällt. Liefert SSE-Strings."""
     fallback_text = ""
-    for chunk in _ollama_token_stream(messages, CEO_SYSTEM):
+    for chunk in _ollama_token_stream(messages, _OLLAMA_SYSTEM):
         fallback_text += chunk
         yield _sse({"type": "token", "text": chunk})
 

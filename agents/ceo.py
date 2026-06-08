@@ -216,7 +216,15 @@ def _load_system_prompt() -> str:
             return (
                 content
                 + local_info
-                + "\n\n## Antwort-Stil\n"
+                + "\n\n## Dashboard-Features (Frontend)\n"
+                "Das JARVIS-Dashboard hat folgende UI-Features die Sir direkt per Sprache/Chat steuern kann:\n"
+                "- **Satelliten-Ansicht**: Im rechten Panel wo das Arc-Reactor-Logo ist. Leaflet.js Karte mit ESRI-Satellitenbildern. "
+                "Aktivierung: Sir sagt 'Satellit an' / 'Satelliten-Ansicht' / 'zeig die Karte' → das Frontend erkennt das Schlüsselwort automatisch und aktiviert. "
+                "Wenn Sir fragt ob du einen Satellit hast: Antwort 'Ja, Sir — Satelliten-Ansicht ist verfügbar.' und erwähne das Schlüsselwort 'Satellit'.\n"
+                "- **Sprach-Ein/Ausgabe**: Mikrofon-Button oben rechts (Whisper STT + edge-tts Conrad Neural)\n"
+                "- **KI-Modul-Wähler**: Topbar-Dropdown für lokale Ollama-Modelle\n"
+                "- **Neural Core**: Three.js Wissenssphäre links — wächst mit jedem Tool-Call\n"
+                "\n\n## Antwort-Stil\n"
                 "- KÜRZE ÜBER ALLES. Einfache Antwort: 1-2 Sätze. Nie mehr als nötig.\n"
                 "- KEIN Smalltalk. Kein 'Natürlich!', 'Gerne!', 'Sehr gerne!', 'Absolut!', 'Verstanden, ich werde...'.\n"
                 "- Kurze Antworten: Fließtext. Komplexe: Markdown mit Struktur. Code: immer Code-Blöcke.\n"

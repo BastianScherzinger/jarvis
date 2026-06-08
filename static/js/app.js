@@ -115,9 +115,14 @@ function deactivateSatView() {
 }
 
 function _checkSatKeyword(text) {
-  if (/satellit|satellite|sat[- ]?view|planet[- ]?view|weltall|orbit|karte|map\s/i.test(text)) {
-    setTimeout(_showSatPrompt, 700);
-  }
+  const isSat = /satellit|satellite|sat[- ]?view|planet[- ]?view|weltall|orbit/i.test(text);
+  if (!isSat) return;
+  // Direkte Aktivierungsabsicht → sofort aktivieren, kein Dialog
+  const isOn  = /\b(an|ein|aktiv|start|zeig|öffn|mach|schalte?\s*(den|die)?\s*(satellit|sat)|launch|activate|turn.?on)\b/i.test(text);
+  const isOff = /\b(aus|deaktiv|close|schließ|stopp|abschalten|turn.?off)\b/i.test(text);
+  if (isOff)      { setTimeout(deactivateSatView, 400); }
+  else if (isOn)  { setTimeout(activateSatView,   400); }
+  else if (!_satActive) { setTimeout(_showSatPrompt, 700); }
 }
 
 function _showSatPrompt() {
@@ -465,6 +470,8 @@ function finalizeMessage() {
   state.currentBubble.innerHTML = renderMd(state.currentText);
   hljs.highlightAll();
   scrollMessages();
+  // JARVIS-Antwort auf Satelliten-Trigger prüfen
+  _checkSatKeyword(state.currentText);
   state.currentMsgEl  = null;
   state.currentBubble = null;
   state.currentText   = "";

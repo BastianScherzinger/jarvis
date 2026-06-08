@@ -453,10 +453,10 @@ def run() -> bool:
 
         if not _has_vid:
             print()
-            print(f"  {CY}  Videomodell wählen:{R}  {GY}(wird beim ersten Aufruf heruntergeladen){R}")
+            print(f"  {CY}  Lokales Videomodell:{R}  {GY}(wird beim ersten Aufruf heruntergeladen){R}")
             for k, m in _VID_MODELS.items():
                 print(f"  [{k}]  {B}{m['name']:<28}{R}  {GY}{m['size']}, {m['vram']} GB VRAM — {m['desc']}{R}")
-            print(f"  [0]  Kein Videomodell")
+            print(f"  [0]  Kein lokales Videomodell  {GY}(Higgsfield-API reicht){R}")
             try:
                 _vc = input(f"  {CY}Videomodell (0/1) [Enter = überspringen]:{R} ").strip()
             except (EOFError, KeyboardInterrupt):
@@ -467,11 +467,36 @@ def run() -> bool:
                     _ef.write(f"\nJARVIS_VIDEO_MODEL={_chosen_vid['key']}\n")
                 _ok(f"Videomodell: {_chosen_vid['name']}", f"Download beim ersten 'Video generieren' ({_chosen_vid['size']})")
             else:
-                _warn("Kein Videomodell konfiguriert", "JARVIS_VIDEO_MODEL in .env setzen")
+                _warn("Kein lokales Videomodell", "JARVIS_VIDEO_MODEL in .env setzen")
         else:
             _vi = _re_m.search(r"JARVIS_VIDEO_MODEL=(.+)", _env_m)
             if _vi:
                 _ok(f"Videomodell: {_vi.group(1).strip()}", "bereits konfiguriert")
+
+    # ── Higgsfield.ai API — Cloud Video-Generierung ──────────────────
+    print()
+    print(f"  {CY}{'─' * 56}{R}")
+    print(f"  {CY}{B}  Higgsfield.ai{R}  {GY}(Cloud Video-KI — cinematische Qualität){R}")
+    print(f"  {CY}{'─' * 56}{R}")
+    _env_hf = (HERE / ".env").read_text(encoding="utf-8") if (HERE / ".env").exists() else ""
+    _has_hf_key = "HIGGSFIELD_API_KEY=" in _env_hf and "HIGGSFIELD_API_KEY=\n" not in _env_hf
+    _hf_placeholder = "dein_api_key" in _env_hf or "YOUR_KEY" in _env_hf.upper()
+
+    if _has_hf_key and not _hf_placeholder:
+        _ok("Higgsfield API-Key", "gesetzt — Tool 'higgsfield_video' verfügbar")
+    else:
+        print(f"  {GY}https://cloud.higgsfield.ai/api-keys  — 10 Credits/Tag gratis{R}")
+        print(f"  {GY}Modelle: dop-lite (3 Credits), dop-preview (6), dop-turbo (9){R}")
+        try:
+            _hf_input = input(f"  {CY}Higgsfield API-Key (Enter = überspringen):{R} ").strip()
+        except (EOFError, KeyboardInterrupt):
+            _hf_input = ""
+        if _hf_input and len(_hf_input) > 8:
+            with open(HERE / ".env", "a", encoding="utf-8") as _ef:
+                _ef.write(f"\nHIGGSFIELD_API_KEY={_hf_input}\n")
+            _ok("Higgsfield API-Key", "gesetzt — 'higgsfield_video' Tool aktiv")
+        else:
+            _warn("Higgsfield übersprungen", "HIGGSFIELD_API_KEY in .env eintragen um Cloud-Videos zu nutzen")
 
     # ── Abschluss ───────────────────────────────────────────────────
     print()

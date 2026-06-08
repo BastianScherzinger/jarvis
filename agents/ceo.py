@@ -237,11 +237,12 @@ def _load_system_prompt() -> str:
             img_model = _os.environ.get("JARVIS_IMAGE_MODEL", "")
             vid_model = _os.environ.get("JARVIS_VIDEO_MODEL", "")
             media_info = ""
-            if img_model or vid_model:
+            higgsfield_key = _os.environ.get("HIGGSFIELD_API_KEY", "")
+            if img_model or vid_model or higgsfield_key:
                 media_info = "\n\n## Medien-Generierung — Bild & Video KI\n"
                 media_info += (
-                    "JARVIS kann lokal Bilder und Videos mit KI generieren.\n"
-                    "NIEMALS sagen 'ich kann keine Bilder generieren' — du KANNST es!\n\n"
+                    "JARVIS kann Bilder und Videos mit KI generieren — lokal UND in der Cloud.\n"
+                    "NIEMALS sagen 'ich kann keine Bilder/Videos generieren' — du KANNST es!\n\n"
                 )
                 if img_model:
                     media_info += (
@@ -252,12 +253,21 @@ def _load_system_prompt() -> str:
                     )
                 if vid_model:
                     media_info += (
-                        f"- **Videomodell aktiv**: `{vid_model}` → Tool: `generate_video`\n"
-                        "  - Trigger: 'mach mir ein Video von X', 'generiere einen Clip'\n"
-                        "  - Dauert 2-15 Minuten — SSE-Verbindung bleibt offen\n"
+                        f"- **Lokales Videomodell**: `{vid_model}` → Tool: `generate_video`\n"
+                        "  - Nutze wenn kein Higgsfield-Key vorhanden. Dauert 2-15 Min.\n"
+                    )
+                if higgsfield_key:
+                    media_info += (
+                        "- **Higgsfield.ai Cloud** → Tool: `higgsfield_video` ← BEVORZUGEN für Videos!\n"
+                        "  - Trigger: 'mach mir ein Video', 'higgsfield video', 'generiere einen Clip'\n"
+                        "  - Modelle: dop-lite (schnell, 3 Credits), dop-preview (6), dop-turbo (beste, 9)\n"
+                        "  - Auch Image-to-Video: image_url Parameter setzen\n"
+                        "  - Dauert 1-3 Minuten — weit besser als lokales Modell\n"
+                        "  - 10 Credits/Tag kostenlos, dann Abonnement\n"
                     )
                 media_info += (
                     "- Das Ergebnis erscheint **automatisch als Bild/Video im Chat**\n"
+                    "- Prompt immer auf Englisch für beste Ergebnisse\n"
                     "- Nach der Generierung kurz kommentieren was erstellt wurde\n"
                 )
 

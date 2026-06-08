@@ -274,16 +274,162 @@ def generate_video(
     }
 
 
+# ── Higgsfield.ai Cloud API ──────────────────────────────────────────────────
+
+_HIGGSFIELD_BASE = "https://platform.higgsfield.ai"
+
+# Verfügbare Higgsfield-Modelle
+HIGGSFIELD_MODELS = {
+    "dop-lite":    {"name": "Higgsfield Dop Lite",    "credits": 3,  "desc": "Schnell, 3 Credits — gut für Tests"},
+    "dop-preview": {"name": "Higgsfield Dop Preview", "credits": 6,  "desc": "Ausgewogen, 6 Credits — Standard"},
+    "dop-turbo":   {"name": "Higgsfield Dop Turbo",   "credits": 9,  "desc": "Höchste Qualität, 9 Credits"},
+}
+
+
+def _hf_key() -> str:
+    content = (_BASE / ".env").read_text(encoding="utf-8", errors="replace") if (_BASE / ".env").exists() else ""
+    m = re.search(r"HIGGSFIELD_API_KEY=(.+)", content)
+    key = m.group(1).strip() if m else ""
+    return key or os.environ.get("HIGGSFIELD_API_KEY", "")
+
+
+def generate_video_higgsfield(
+    prompt: str,
+    model: str = "dop-lite",
+    image_url: str | None = None,
+    motion_strength: float = 0.5,
+    enhance_prompt: bool = True,
+    seed: int | None = None,
+) -> dict:
+    """
+    Generiert ein Video via Higgsfield.ai Cloud API.
+    Polling bis COMPLETED (max 5 Minuten).
+    Gibt dict zurück: {'path', 'web_url', 'model', 'prompt', 'elapsed'}
+    """
+    import urllib.request
+    import urllib.error
+    import json
+
+    api_key = _hf_key()
+    if not api_key:
+        raise ValueError(
+            "HIGGSFIELD_API_KEY fehlt in .env.\n"
+            "API-Key unter https://cloud.higgsfield.ai/api-keys erstellen."
+        )
+
+    headers_json = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type":  "application/json",
+    }
+    headers_get = {"Authorization": f"Bearer {api_key}"}
+
+    model = model if model in HIGGSFIELD_MODELS else "dop-lite"
+
+    payload: dict = {
+        "model":            model,
+        "prompt":           prompt,
+        "motions_strength": round(max(0.0, min(1.0, motion_strength)), 2),
+        "enhance_prompt":   enhance_prompt,
+    }
+    if image_url:
+        payload["input_images"] = [image_url]
+    if seed is not None:
+        payload["seed"] = seed
+
+    # ── Auftrag erstellen ────────────────────────────────────────────
+    t0 = time.time()
+    try:
+        req = urllib.request.Request(
+            f"{_HIGGSFIELD_BASE}/v1/generations",
+            data=json.dumps(payload).encode(),
+            headers=headers_json,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            create_data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Higgsfield API Fehler {e.code}: {body[:300]}")
+
+    gen_id = (
+        create_data.get("id")
+        or create_data.get("request_id")
+        or create_data.get("generation_id")
+    )
+    if not gen_id:
+        raise ValueError(f"Kein ID in Higgsfield-Antwort: {create_data}")
+
+    # ── Polling bis COMPLETED ────────────────────────────────────────
+    video_url = ""
+    for _ in range(60):          # max 5 Minuten (60 × 5s)
+        time.sleep(5)
+        poll_req = urllib.request.Request(
+            f"{_HIGGSFIELD_BASE}/v1/generations/{gen_id}",
+            headers=headers_get,
+        )
+        try:
+            with urllib.request.urlopen(poll_req, timeout=15) as resp:
+                poll_data = json.loads(resp.read().decode())
+        except Exception:
+            continue
+
+        status = (poll_data.get("status") or "").upper()
+
+        if status == "COMPLETED":
+            # Video-URL extrahieren — verschiedene mögliche Strukturen
+            video_url = (
+                (poll_data.get("video") or {}).get("url", "")
+                or (poll_data.get("output") or {}).get("url", "")
+                or poll_data.get("video_url", "")
+            )
+            if not video_url:
+                outputs = poll_data.get("outputs", [])
+                if outputs:
+                    first = outputs[0]
+                    video_url = first.get("url", "") if isinstance(first, dict) else str(first)
+            break
+
+        elif status in ("FAILED", "ERROR", "CANCELLED"):
+            err = poll_data.get("error") or poll_data.get("message") or status
+            raise RuntimeError(f"Higgsfield Generierung fehlgeschlagen: {err}")
+
+    else:
+        raise TimeoutError("Higgsfield Timeout nach 5 Minuten — kein Ergebnis erhalten")
+
+    if not video_url:
+        raise RuntimeError(f"Kein Video-URL in Higgsfield-Antwort: {poll_data}")
+
+    # ── Video herunterladen ──────────────────────────────────────────
+    dl_req = urllib.request.Request(video_url, headers={"User-Agent": "JARVIS/1.0"})
+    with urllib.request.urlopen(dl_req, timeout=120) as resp:
+        video_bytes = resp.read()
+
+    ts  = time.strftime("%Y%m%d_%H%M%S")
+    out = WORKSPACE_VIDEOS / f"higgsfield_{ts}.mp4"
+    out.write_bytes(video_bytes)
+
+    return {
+        "path":    str(out),
+        "web_url": f"/workspace/media/videos/{out.name}",
+        "model":   HIGGSFIELD_MODELS.get(model, {}).get("name", model),
+        "prompt":  prompt,
+        "gen_id":  gen_id,
+        "elapsed": round(time.time() - t0, 1),
+    }
+
+
 def get_status() -> dict:
     """Gibt Konfigurationsstatus zurück."""
     img_key = get_active_image_model()
     vid_key = get_active_video_model()
+    hf_key_set = bool(_hf_key())
     return {
-        "image_model":     IMAGE_MODELS.get(img_key, {}).get("name", img_key),
-        "image_model_key": img_key,
-        "video_model":     VIDEO_MODELS.get(vid_key, {}).get("name", vid_key),
-        "video_model_key": vid_key,
-        "diffusers_ok":    _check_diffusers(),
+        "image_model":        IMAGE_MODELS.get(img_key, {}).get("name", img_key),
+        "image_model_key":    img_key,
+        "video_model":        VIDEO_MODELS.get(vid_key, {}).get("name", vid_key),
+        "video_model_key":    vid_key,
+        "diffusers_ok":       _check_diffusers(),
+        "higgsfield_api_key": hf_key_set,
     }
 
 

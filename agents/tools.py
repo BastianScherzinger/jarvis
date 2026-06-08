@@ -333,7 +333,8 @@ TOOL_DEFINITIONS = [
         "name": "generate_video",
         "description": (
             "Generiert ein kurzes Video lokal mit KI (Wan 2.1 T2V via Hugging Face Diffusers). "
-            "Nutze dieses Tool wenn Sir 'mach mir ein Video', 'generiere einen Clip von ...' sagt. "
+            "Nutze dieses Tool wenn Sir 'mach mir ein Video', 'generiere einen Clip von ...' sagt "
+            "und KEIN Higgsfield-API-Key konfiguriert ist. "
             "Dauert je nach Hardware 2-15 Minuten. "
             "Das Video erscheint direkt im Chat-Fenster."
         ),
@@ -351,6 +352,43 @@ TOOL_DEFINITIONS = [
                 "num_frames": {
                     "type": "integer",
                     "description": "Anzahl Frames (default: 25, bei 16fps ≈ 1.5 Sekunden. Max: 81)",
+                },
+            },
+            "required": ["prompt"],
+        },
+    },
+    {
+        "name": "higgsfield_video",
+        "description": (
+            "Generiert ein Video mit Higgsfield.ai Cloud API — cinematische Qualität, keine lokale GPU nötig. "
+            "BEVORZUGE dieses Tool für Videos wenn ein HIGGSFIELD_API_KEY gesetzt ist. "
+            "Unterstützt auch Image-to-Video wenn eine Bild-URL übergeben wird. "
+            "Dauert 1-3 Minuten, kostet Credits. Modelle: dop-lite (3 Credits), dop-preview (6), dop-turbo (9). "
+            "Das fertige Video erscheint direkt im Chat."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Detaillierte Video-Beschreibung auf Englisch. Beispiel: 'a cinematic shot of iron man flying over a futuristic city, dramatic lighting'",
+                },
+                "model": {
+                    "type": "string",
+                    "enum": ["dop-lite", "dop-preview", "dop-turbo"],
+                    "description": "Higgsfield-Modell. dop-lite: schnell + günstig (3 Credits). dop-preview: Standard (6 Credits). dop-turbo: beste Qualität (9 Credits). Default: dop-lite",
+                },
+                "image_url": {
+                    "type": "string",
+                    "description": "Optional: URL eines Bildes für Image-to-Video. Wenn gesetzt wird das Bild animiert.",
+                },
+                "motion_strength": {
+                    "type": "number",
+                    "description": "Bewegungsstärke 0.0-1.0 (default: 0.5). Höher = mehr Bewegung",
+                },
+                "seed": {
+                    "type": "integer",
+                    "description": "Optional: Seed für reproduzierbare Ergebnisse",
                 },
             },
             "required": ["prompt"],
@@ -416,6 +454,14 @@ def execute_tool(name: str, inputs: dict) -> str:
                 inputs["prompt"],
                 inputs.get("negative_prompt"),
                 inputs.get("num_frames", 25),
+            )
+        case "higgsfield_video":
+            return _higgsfield_video(
+                inputs["prompt"],
+                inputs.get("model", "dop-lite"),
+                inputs.get("image_url"),
+                inputs.get("motion_strength", 0.5),
+                inputs.get("seed"),
             )
         case _:
             return f"Unbekanntes Tool: {name}"
@@ -1013,6 +1059,33 @@ def _generate_video(
         )
     except Exception as e:
         return f"Video-Generierung fehlgeschlagen: {type(e).__name__}: {e}"
+
+
+def _higgsfield_video(
+    prompt: str,
+    model: str = "dop-lite",
+    image_url: str | None = None,
+    motion_strength: float = 0.5,
+    seed: int | None = None,
+) -> str:
+    try:
+        import media_engine as me
+        result = me.generate_video_higgsfield(
+            prompt=prompt,
+            model=model,
+            image_url=image_url,
+            motion_strength=motion_strength,
+            seed=seed,
+        )
+        return (
+            f"[JARVIS_VIDEO:{result['web_url']}]\n"
+            f"Modell: {result['model']} | Dauer: {result['elapsed']}s | ID: {result['gen_id']}\n"
+            f"Gespeichert: {result['path']}"
+        )
+    except ImportError:
+        return "Fehler: media_engine nicht ladbar."
+    except Exception as e:
+        return f"Higgsfield-Fehler: {type(e).__name__}: {e}"
 
 
 def _delegate(agent_key: str, task: str) -> str:

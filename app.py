@@ -12,7 +12,7 @@ import socket
 import time as _time
 
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context, send_from_directory
 from agents.ceo import JarvisCEO, get_usage
 from agents.tools import WORKSPACE_TASKS, WORKSPACE_RESULTS
 import jarvis_log as log
@@ -423,6 +423,23 @@ def api_workspace():
         "tasks":   [file_info(f) for f in tasks],
         "results": [file_info(f) for f in results],
     })
+
+
+@app.route("/workspace/media/<path:filename>")
+def serve_media(filename):
+    """Dient generierte Bilder/Videos aus workspace/media/ aus."""
+    media_dir = Path(__file__).parent / "workspace" / "media"
+    return send_from_directory(str(media_dir), filename)
+
+
+@app.route("/api/media/status")
+def api_media_status():
+    """Gibt Status der konfigurierten Bild/Video-Modelle zurück."""
+    try:
+        import media_engine as me
+        return jsonify(me.get_status())
+    except ImportError:
+        return jsonify({"diffusers_ok": False, "image_model": None, "video_model": None})
 
 
 @app.route("/api/workspace/<folder>/<path:filename>")

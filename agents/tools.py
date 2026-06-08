@@ -289,6 +289,73 @@ TOOL_DEFINITIONS = [
             "required": ["task"],
         },
     },
+    {
+        "name": "generate_image",
+        "description": (
+            "Generiert ein Bild lokal mit KI (Stable Diffusion / FLUX via Hugging Face Diffusers). "
+            "Nutze dieses Tool IMMER wenn Sir 'mach mir ein Bild', 'generiere ein Bild', "
+            "'zeichne', 'erstelle ein Foto / eine Illustration von ...' sagt. "
+            "Der Prompt sollte auf Englisch sein für maximale Qualität. "
+            "Erster Aufruf lädt das Modell herunter (~2-15 GB, einmalig). "
+            "Das fertige Bild erscheint direkt im Chat-Fenster."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": (
+                        "Detaillierte Bild-Beschreibung auf Englisch. "
+                        "Beispiel: 'futuristic iron man suit in space, cinematic lighting, 8K, detailed'"
+                    ),
+                },
+                "negative_prompt": {
+                    "type": "string",
+                    "description": "Was das Bild NICHT enthalten soll (optional). Default: 'blurry, low quality, watermark'",
+                },
+                "steps": {
+                    "type": "integer",
+                    "description": "Inference-Schritte (default: 25). Mehr = besser aber langsamer. Max: 50",
+                },
+                "width": {
+                    "type": "integer",
+                    "description": "Breite in Pixel (optional, default: 768 für SD, 1024 für SDXL/FLUX)",
+                },
+                "height": {
+                    "type": "integer",
+                    "description": "Höhe in Pixel (optional, default: 768 für SD, 1024 für SDXL/FLUX)",
+                },
+            },
+            "required": ["prompt"],
+        },
+    },
+    {
+        "name": "generate_video",
+        "description": (
+            "Generiert ein kurzes Video lokal mit KI (Wan 2.1 T2V via Hugging Face Diffusers). "
+            "Nutze dieses Tool wenn Sir 'mach mir ein Video', 'generiere einen Clip von ...' sagt. "
+            "Dauert je nach Hardware 2-15 Minuten. "
+            "Das Video erscheint direkt im Chat-Fenster."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Video-Beschreibung auf Englisch. Beispiel: 'a robot walks through a futuristic city at night'",
+                },
+                "negative_prompt": {
+                    "type": "string",
+                    "description": "Was das Video NICHT enthalten soll (optional)",
+                },
+                "num_frames": {
+                    "type": "integer",
+                    "description": "Anzahl Frames (default: 25, bei 16fps ≈ 1.5 Sekunden. Max: 81)",
+                },
+            },
+            "required": ["prompt"],
+        },
+    },
 ]
 
 
@@ -336,6 +403,20 @@ def execute_tool(name: str, inputs: dict) -> str:
             return _delegate(inputs["agent"], inputs["task"])
         case "local_ai_worker":
             return _local_ai_worker(inputs["task"], inputs.get("system", ""), inputs.get("model", ""))
+        case "generate_image":
+            return _generate_image(
+                inputs["prompt"],
+                inputs.get("negative_prompt"),
+                inputs.get("steps", 25),
+                inputs.get("width"),
+                inputs.get("height"),
+            )
+        case "generate_video":
+            return _generate_video(
+                inputs["prompt"],
+                inputs.get("negative_prompt"),
+                inputs.get("num_frames", 25),
+            )
         case _:
             return f"Unbekanntes Tool: {name}"
 
@@ -872,6 +953,66 @@ def _local_ai_worker(task: str, system: str = "", model: str = "") -> str:
         return f"Ollama-Fehler ({model}): {reason}"
     except Exception as e:
         return f"Ollama-Fehler ({model}): {type(e).__name__}: {e}"
+
+
+def _generate_image(
+    prompt: str,
+    negative_prompt: str | None = None,
+    steps: int = 25,
+    width: int | None = None,
+    height: int | None = None,
+) -> str:
+    try:
+        import media_engine as me  # noqa
+        neg = negative_prompt or "blurry, low quality, watermark, text, deformed, ugly, bad anatomy"
+        result = me.generate_image(
+            prompt=prompt,
+            negative_prompt=neg,
+            steps=steps,
+            width=width,
+            height=height,
+        )
+        return (
+            f"[JARVIS_IMAGE:{result['web_url']}]\n"
+            f"Modell: {result['model']} | Dauer: {result['elapsed']}s\n"
+            f"Gespeichert: {result['path']}"
+        )
+    except ImportError:
+        return (
+            "Fehler: diffusers oder torch nicht installiert.\n"
+            "Installieren mit: pip install torch diffusers transformers accelerate"
+        )
+    except Exception as e:
+        return f"Bild-Generierung fehlgeschlagen: {type(e).__name__}: {e}"
+
+
+def _generate_video(
+    prompt: str,
+    negative_prompt: str | None = None,
+    num_frames: int = 25,
+) -> str:
+    try:
+        import media_engine as me  # noqa
+        neg = negative_prompt or "low quality, blurry, watermark, distorted"
+        result = me.generate_video(
+            prompt=prompt,
+            negative_prompt=neg,
+            num_frames=num_frames,
+        )
+        suffix = "mp4" if result["path"].endswith(".mp4") else "gif"
+        media_tag = "JARVIS_VIDEO" if suffix == "mp4" else "JARVIS_GIF"
+        return (
+            f"[{media_tag}:{result['web_url']}]\n"
+            f"Modell: {result['model']} | Frames: {num_frames} | Dauer: {result['elapsed']}s\n"
+            f"Gespeichert: {result['path']}"
+        )
+    except ImportError:
+        return (
+            "Fehler: diffusers oder torch nicht installiert.\n"
+            "Installieren mit: pip install torch diffusers transformers accelerate"
+        )
+    except Exception as e:
+        return f"Video-Generierung fehlgeschlagen: {type(e).__name__}: {e}"
 
 
 def _delegate(agent_key: str, task: str) -> str:

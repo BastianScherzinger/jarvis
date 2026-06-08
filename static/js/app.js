@@ -993,8 +993,38 @@ function insertPrompt(text) {
 }
 
 function renderMd(text) {
-  try { return marked.parse(text); }
-  catch { return escHtml(text); }
+  let html;
+  try { html = marked.parse(text); }
+  catch { html = escHtml(text); }
+
+  // Generierte Bilder inline anzeigen
+  html = html.replace(/\[JARVIS_IMAGE:(\/[^\]<]+)\]/g, (_, url) =>
+    `<div class="jarvis-media-wrap">
+      <img class="jarvis-gen-img" src="${url}" alt="KI-Bild" loading="lazy"
+           onclick="this.classList.toggle('jarvis-img-fullscreen')"/>
+      <div class="jarvis-media-label">⬡ KI-Bild generiert — klicken zum Vergrößern</div>
+    </div>`
+  );
+
+  // Generierte Videos inline anzeigen
+  html = html.replace(/\[JARVIS_VIDEO:(\/[^\]<]+)\]/g, (_, url) =>
+    `<div class="jarvis-media-wrap">
+      <video class="jarvis-gen-vid" controls autoplay loop muted playsinline>
+        <source src="${url}" type="video/mp4">
+      </video>
+      <div class="jarvis-media-label">⬡ KI-Video generiert</div>
+    </div>`
+  );
+
+  // GIF-Fallback
+  html = html.replace(/\[JARVIS_GIF:(\/[^\]<]+)\]/g, (_, url) =>
+    `<div class="jarvis-media-wrap">
+      <img class="jarvis-gen-img" src="${url}" alt="KI-Video (GIF)" loading="lazy"/>
+      <div class="jarvis-media-label">⬡ KI-Video (GIF) generiert</div>
+    </div>`
+  );
+
+  return html;
 }
 
 function escHtml(s) {

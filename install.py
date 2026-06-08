@@ -372,6 +372,107 @@ def run() -> bool:
         except Exception:
             pass
 
+    # ── Media KI — Bild & Video Generierung ─────────────────────────
+    print()
+    print(f"  {CY}{'─' * 56}{R}")
+    print(f"  {CY}{B}  Media KI{R}  {GY}(Hugging Face Diffusers — Bild & Video lokal){R}")
+    print(f"  {CY}{'─' * 56}{R}")
+
+    _diffusers_ok = _can_import("diffusers") and _can_import("torch")
+
+    if not _diffusers_ok:
+        print(f"  {GY}diffusers + torch nicht installiert  (~3-5 GB Pakete){R}")
+        try:
+            _media_install = input(f"  {CY}Jetzt installieren? [j/N]:{R} ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            _media_install = "n"
+        if _media_install in ("j", "ja", "y", "yes"):
+            _installing("torch + diffusers + transformers + accelerate")
+            _t_ok = _pip("torch")
+            _d_ok = _pip("diffusers", "transformers", "accelerate", "sentencepiece")
+            if _t_ok and _d_ok:
+                print(f"\r  {GR}OK{R}  Media-KI-Pakete installiert            ")
+                _diffusers_ok = True
+            else:
+                print(f"\r  {YL}!{R}   Install fehlgeschlagen — manuell: pip install torch diffusers transformers accelerate")
+        else:
+            _warn("Media-KI übersprungen", "manuell: pip install torch diffusers transformers accelerate")
+
+    if _diffusers_ok:
+        import re as _re_m
+        _env_m = (HERE / ".env").read_text(encoding="utf-8") if (HERE / ".env").exists() else ""
+        _has_img = "JARVIS_IMAGE_MODEL=" in _env_m and "JARVIS_IMAGE_MODEL=\n" not in _env_m
+        _has_vid = "JARVIS_VIDEO_MODEL=" in _env_m and "JARVIS_VIDEO_MODEL=\n" not in _env_m
+
+        _IMG_MODELS = {
+            "1": {"key": "sd21",         "name": "Stable Diffusion 2.1", "size": "~2.5 GB", "vram": 4,
+                  "desc": "Schnell, stabil — ab 4 GB VRAM, auch CPU (langsam)"},
+            "2": {"key": "sdxl",         "name": "Stable Diffusion XL",  "size": "~6.5 GB", "vram": 8,
+                  "desc": "Höhere Qualität, 1024px — ab 8 GB VRAM"},
+            "3": {"key": "flux-schnell", "name": "FLUX.1 Schnell",        "size": "~15 GB",  "vram": 8,
+                  "desc": "Bestes lokales Bildmodell, Apache 2.0 — ab 8 GB VRAM"},
+        }
+        _VID_MODELS = {
+            "1": {"key": "wan-1.3b", "name": "Wan 2.1 T2V 1.3B", "size": "~2.7 GB", "vram": 8,
+                  "desc": "Text-to-Video 480p — ab 8 GB VRAM"},
+        }
+
+        # Empfehlung basierend auf System-Profil
+        _img_rec = "sd21"
+        if _profile:
+            _ram = _profile.get("ram_gb", 8)
+            if _ram >= 16:
+                _img_rec = "sdxl"
+            if _ram >= 32:
+                _img_rec = "flux-schnell"
+
+        if not _has_img:
+            print()
+            print(f"  {CY}  Bildmodell wählen:{R}  {GY}(wird beim ersten Aufruf heruntergeladen){R}")
+            for k, m in _IMG_MODELS.items():
+                _marker = f"  {GR}← empfohlen{R}" if m["key"] == _img_rec else ""
+                print(f"  [{k}]  {B}{m['name']:<28}{R}  {GY}{m['size']}, {m['vram']} GB VRAM — {m['desc']}{R}{_marker}")
+            print(f"  [0]  Kein Bildmodell")
+            try:
+                _ic = input(f"  {CY}Bildmodell (0-3) [Enter = {_img_rec}]:{R} ").strip()
+            except (EOFError, KeyboardInterrupt):
+                _ic = ""
+            if _ic == "":
+                _ic = next((k for k, v in _IMG_MODELS.items() if v["key"] == _img_rec), "0")
+            if _ic in _IMG_MODELS:
+                _chosen_img = _IMG_MODELS[_ic]
+                with open(HERE / ".env", "a", encoding="utf-8") as _ef:
+                    _ef.write(f"\nJARVIS_IMAGE_MODEL={_chosen_img['key']}\n")
+                _ok(f"Bildmodell: {_chosen_img['name']}", f"Download beim ersten 'Bild generieren' ({_chosen_img['size']})")
+            else:
+                _warn("Kein Bildmodell konfiguriert", "JARVIS_IMAGE_MODEL in .env setzen")
+        else:
+            _mi = _re_m.search(r"JARVIS_IMAGE_MODEL=(.+)", _env_m)
+            if _mi:
+                _ok(f"Bildmodell: {_mi.group(1).strip()}", "bereits konfiguriert")
+
+        if not _has_vid:
+            print()
+            print(f"  {CY}  Videomodell wählen:{R}  {GY}(wird beim ersten Aufruf heruntergeladen){R}")
+            for k, m in _VID_MODELS.items():
+                print(f"  [{k}]  {B}{m['name']:<28}{R}  {GY}{m['size']}, {m['vram']} GB VRAM — {m['desc']}{R}")
+            print(f"  [0]  Kein Videomodell")
+            try:
+                _vc = input(f"  {CY}Videomodell (0/1) [Enter = überspringen]:{R} ").strip()
+            except (EOFError, KeyboardInterrupt):
+                _vc = "0"
+            if _vc in _VID_MODELS:
+                _chosen_vid = _VID_MODELS[_vc]
+                with open(HERE / ".env", "a", encoding="utf-8") as _ef:
+                    _ef.write(f"\nJARVIS_VIDEO_MODEL={_chosen_vid['key']}\n")
+                _ok(f"Videomodell: {_chosen_vid['name']}", f"Download beim ersten 'Video generieren' ({_chosen_vid['size']})")
+            else:
+                _warn("Kein Videomodell konfiguriert", "JARVIS_VIDEO_MODEL in .env setzen")
+        else:
+            _vi = _re_m.search(r"JARVIS_VIDEO_MODEL=(.+)", _env_m)
+            if _vi:
+                _ok(f"Videomodell: {_vi.group(1).strip()}", "bereits konfiguriert")
+
     # ── Abschluss ───────────────────────────────────────────────────
     print()
     if all_ok:

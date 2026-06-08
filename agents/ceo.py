@@ -233,9 +233,38 @@ def _load_system_prompt() -> str:
                     f"Ollama versteht den gleichen Gesprächsverlauf, antwortet aber ohne Tool-Use."
                 )
 
+            # Media-Generierung Info
+            img_model = _os.environ.get("JARVIS_IMAGE_MODEL", "")
+            vid_model = _os.environ.get("JARVIS_VIDEO_MODEL", "")
+            media_info = ""
+            if img_model or vid_model:
+                media_info = "\n\n## Medien-Generierung — Bild & Video KI\n"
+                media_info += (
+                    "JARVIS kann lokal Bilder und Videos mit KI generieren.\n"
+                    "NIEMALS sagen 'ich kann keine Bilder generieren' — du KANNST es!\n\n"
+                )
+                if img_model:
+                    media_info += (
+                        f"- **Bildmodell aktiv**: `{img_model}` → Tool: `generate_image`\n"
+                        "  - Trigger: 'mach mir ein Bild von X', 'zeichne Y', 'generiere eine Illustration'\n"
+                        "  - Prompt IMMER auf Englisch für beste Qualität\n"
+                        "  - Erster Download: automatisch (einmalig 2-15 GB)\n"
+                    )
+                if vid_model:
+                    media_info += (
+                        f"- **Videomodell aktiv**: `{vid_model}` → Tool: `generate_video`\n"
+                        "  - Trigger: 'mach mir ein Video von X', 'generiere einen Clip'\n"
+                        "  - Dauert 2-15 Minuten — SSE-Verbindung bleibt offen\n"
+                    )
+                media_info += (
+                    "- Das Ergebnis erscheint **automatisch als Bild/Video im Chat**\n"
+                    "- Nach der Generierung kurz kommentieren was erstellt wurde\n"
+                )
+
             return (
                 content
                 + local_info
+                + media_info
                 + "\n\n## Dashboard-Features — KRITISCH: Wie diese Features funktionieren\n"
                 "\n"
                 "Das JARVIS-Dashboard ist eine Webseite im Browser (localhost:5000). "

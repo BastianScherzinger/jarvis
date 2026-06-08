@@ -1295,3 +1295,36 @@ body {
 }
 .sat-lock-text.anim { animation:lockTextIn .25s ease-out forwards; }
 @keyframes lockTextIn { from{opacity:0;letter-spacing:.6em;} to{opacity:1;letter-spacing:.35em;} }
+
+/* ── Media KI — Bild & Video in Chat ─────────────────────────────────────── */
+.jarvis-media-wrap {
+  margin:10px 0; border-radius:6px; overflow:hidden;
+  border:1px solid rgba(0,212,255,.22);
+  background:rgba(0,20,40,.45);
+  box-shadow:0 4px 24px rgba(0,0,0,.5), 0 0 0 1px rgba(0,212,255,.08);
+}
+.jarvis-gen-img {
+  display:block; max-width:100%; width:100%;
+  border-radius:5px 5px 0 0;
+  cursor:zoom-in; transition:filter .25s;
+  image-rendering:auto;
+}
+.jarvis-gen-img:hover { filter:brightness(1.08) saturate(1.12); }
+.jarvis-gen-img.jarvis-img-fullscreen {
+  position:fixed; inset:0; width:100vw; height:100vh;
+  object-fit:contain; z-index:9999;
+  border-radius:0; background:#000;
+  cursor:zoom-out;
+  box-shadow:0 0 0 100vmax rgba(0,0,0,.88);
+}
+.jarvis-gen-vid {
+  display:block; width:100%; max-width:100%;
+  border-radius:5px 5px 0 0;
+}
+.jarvis-media-label {
+  padding:6px 12px; font-family:var(--font-hud);
+  font-size:.55rem; letter-spacing:.16em;
+  color:rgba(0,212,255,.6);
+  border-top:1px solid rgba(0,212,255,.12);
+  background:rgba(0,10,25,.6);
+}

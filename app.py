@@ -1,4 +1,5 @@
 ﻿import io
+import re
 import wave
 import struct
 import math
@@ -24,13 +25,26 @@ log.banner()
 
 # ── Bekannte Ollama-Modell-Tiers ───────────────────────────────────
 _MODELS = [
-    {"id": "llama3.2:1b",        "key": "tiny",   "name": "Llama 3.2 1B",       "desc": "Jede Hardware",  "ram_gb": 1.5, "vram": "~1 GB",  "tier": 1},
-    {"id": "qwen2.5-coder:1.5b", "key": "coder",  "name": "Qwen 2.5 Coder 1.5B","desc": "Code-Spezialist","ram_gb": 1.5, "vram": "~1 GB",  "tier": 1},
-    {"id": "qwen2.5:3b",         "key": "small",  "name": "Qwen 2.5 3B",        "desc": "Schwache PCs",   "ram_gb": 4.0, "vram": "~4 GB",  "tier": 2},
-    {"id": "qwen2.5:7b",         "key": "laptop", "name": "Qwen 2.5 7B",        "desc": "Laptop 8 GB",    "ram_gb": 8.0, "vram": "~8 GB",  "tier": 3},
-    {"id": "qwen2.5:14b",        "key": "medium", "name": "Qwen 2.5 14B",       "desc": "Desktop 16 GB",  "ram_gb": 16.0,"vram": "~16 GB", "tier": 4},
-    {"id": "qwen2.5:32b",        "key": "large",  "name": "Qwen 2.5 32B",       "desc": "Desktop 32 GB",  "ram_gb": 32.0,"vram": "~32 GB", "tier": 5},
-    {"id": "llama3.3:70b",       "key": "allware","name": "Llama 3.3 70B",      "desc": "High-End Server", "ram_gb": 48.0,"vram": "~48 GB", "tier": 6},
+    # Tier 1 — Micro (<2 GB RAM)
+    {"id": "llama3.2:1b",        "key": "tiny",    "name": "Llama 3.2 1B",        "desc": "Jede Hardware",      "ram_gb": 1.5,  "vram": "~1 GB",   "tier": 1},
+    {"id": "qwen2.5-coder:1.5b", "key": "coder",   "name": "Qwen 2.5 Coder 1.5B", "desc": "Code-Spezialist",    "ram_gb": 1.5,  "vram": "~1 GB",   "tier": 1},
+    # Tier 2 — Small (3–5 GB RAM)
+    {"id": "gemma3:4b",          "key": "gemma4",  "name": "Gemma 3 4B",           "desc": "Google, multilingual","ram_gb": 4.0,  "vram": "~4 GB",   "tier": 2},
+    {"id": "qwen2.5:3b",         "key": "small",   "name": "Qwen 2.5 3B",          "desc": "Schnell & kompakt",   "ram_gb": 4.0,  "vram": "~4 GB",   "tier": 2},
+    # Tier 3 — Medium (6–9 GB RAM)
+    {"id": "llama3.1:8b",        "key": "llama8",  "name": "Llama 3.1 8B",         "desc": "Meta, universell",    "ram_gb": 6.0,  "vram": "~6 GB",   "tier": 3},
+    {"id": "mistral:7b",         "key": "mistral", "name": "Mistral 7B",            "desc": "Schnell & präzise",   "ram_gb": 5.0,  "vram": "~5 GB",   "tier": 3},
+    {"id": "deepseek-r1:7b",     "key": "reason",  "name": "DeepSeek R1 7B",        "desc": "Reasoning-Modell",    "ram_gb": 6.0,  "vram": "~6 GB",   "tier": 3},
+    {"id": "qwen2.5:7b",         "key": "laptop",  "name": "Qwen 2.5 7B",           "desc": "Laptop-Standard",     "ram_gb": 8.0,  "vram": "~8 GB",   "tier": 3},
+    # Tier 4 — Large (10–20 GB RAM)
+    {"id": "phi4:14b",           "key": "phi4",    "name": "Phi-4 14B",             "desc": "Microsoft, sehr klug","ram_gb": 10.0, "vram": "~10 GB",  "tier": 4},
+    {"id": "gemma3:12b",         "key": "gemma12", "name": "Gemma 3 12B",           "desc": "Google, ausgewogen",  "ram_gb": 10.0, "vram": "~10 GB",  "tier": 4},
+    {"id": "qwen2.5:14b",        "key": "medium",  "name": "Qwen 2.5 14B",          "desc": "Desktop 16 GB",       "ram_gb": 16.0, "vram": "~16 GB",  "tier": 4},
+    # Tier 5 — XL (32+ GB RAM)
+    {"id": "qwen2.5:32b",        "key": "large",   "name": "Qwen 2.5 32B",          "desc": "High-End Desktop",    "ram_gb": 32.0, "vram": "~32 GB",  "tier": 5},
+    {"id": "phi4-reasoning:14b", "key": "phi4r",   "name": "Phi-4 Reasoning 14B",   "desc": "Microsoft, Logik",    "ram_gb": 10.0, "vram": "~10 GB",  "tier": 4},
+    # Tier 6 — Server
+    {"id": "llama3.3:70b",       "key": "allware", "name": "Llama 3.3 70B",         "desc": "Server-Grade",        "ram_gb": 48.0, "vram": "~48 GB",  "tier": 6},
 ]
 
 
@@ -141,28 +155,60 @@ def _webm_to_wav(webm_bytes: bytes, rate: int = 16000) -> bytes:
             except OSError: pass
 
 
+# Whisper-Halluzinationen die bei Musik/Stille auftreten
+_WHISPER_HALLUCINATIONS = re.compile(
+    r'^(Danke\.|Tschüss\.|Auf Wiedersehen\.|Vielen Dank\.|Bitte\.|Untertitel|'
+    r'Untertitelung|♪|www\.|Copyright|\(Musik\)|\[Musik\]|Thank you\.|'
+    r'Subtitles|Subscribe|Like and|Bye\.|Okay\.)$',
+    re.IGNORECASE,
+)
+
+
 def _transcribe_whisper(buf: io.BytesIO, lang: str) -> str:
-    """Lokale Transkription via faster-whisper (kein Netz)."""
+    """Lokale Transkription via faster-whisper — optimiert für Geschwindigkeit."""
     import numpy as _np
     buf.seek(0)
     with wave.open(buf, "rb") as wf:
         raw = wf.readframes(wf.getnframes())
     samples = _np.frombuffer(raw, dtype=_np.int16).astype(_np.float32) / 32768.0
+
+    # Musik-Detektion: gleichmäßiger RMS → kein Sprach-Signal
+    if len(samples) > 3200:
+        chunk_size = 1600
+        rms_vals = [
+            float(_np.sqrt(_np.mean(samples[i:i+chunk_size] ** 2)))
+            for i in range(0, len(samples) - chunk_size, chunk_size)
+        ]
+        mean_rms = float(_np.mean(rms_vals))
+        std_rms  = float(_np.std(rms_vals))
+        if mean_rms > 0.003 and (std_rms / (mean_rms + 1e-9)) < 0.30:
+            log.warn("Whisper: gleichmäßiger Pegel → Musik/Hintergrund, ignoriert")
+            return ""
+
     lang_code = lang.split("-")[0]
     segments, info = _whisper.transcribe(
         samples,
         language=lang_code,
-        beam_size=8,
-        best_of=3,
+        beam_size=3,            # 8 → 3: deutlich schneller, kaum Qualitätsverlust
+        best_of=1,              # 3 → 1: kein re-sampling nötig
         temperature=0.0,
         vad_filter=True,
-        initial_prompt="JARVIS Assistent. Nutzer gibt kurze Befehle auf Deutsch.",
-        vad_parameters={"min_silence_duration_ms": 800, "speech_pad_ms": 300, "threshold": 0.4},
-        no_speech_threshold=0.55,
-        compression_ratio_threshold=1.8,
-        log_prob_threshold=-0.4,
+        condition_on_previous_text=False,  # verhindert Wiederholungs-Loops
+        initial_prompt="Kurzer Sprachbefehl auf Deutsch an JARVIS-Assistenten.",
+        vad_parameters={"min_silence_duration_ms": 600, "speech_pad_ms": 200, "threshold": 0.5},
+        no_speech_threshold=0.60,
+        compression_ratio_threshold=1.6,
+        log_prob_threshold=-0.5,
     )
-    texts = [s.text.strip() for s in segments if s.no_speech_prob < 0.45 and s.text.strip()]
+    texts = []
+    for s in segments:
+        t = s.text.strip()
+        if s.no_speech_prob > 0.50:
+            continue
+        if _WHISPER_HALLUCINATIONS.match(t):
+            continue
+        if t:
+            texts.append(t)
     result = " ".join(texts).strip()
     if not result:
         log.warn(f"Whisper: no_speech (lang_prob={info.language_probability:.2f})")

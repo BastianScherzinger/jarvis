@@ -77,27 +77,46 @@ def _strip_emojis(text: str) -> str:
     return ''.join(out)
 
 
-def _extract_spoken(text: str, max_chars: int = 200) -> str:
+_SPOKEN_FILLER = re.compile(
+    r'^(Selbstverständlich|Natürlich|Sicher|Absolut|Gewiss|Selbst|'
+    r'Sehr gerne|Klar|Gerne|In der Tat|Tatsächlich)[,!.]?\s*',
+    re.IGNORECASE,
+)
+
+def _extract_spoken(text: str, max_chars: int = 300) -> str:
     text = _strip_emojis(text)
+    # Code-Blöcke → kurze Ansage
     text = re.sub(r'```[\s\S]*?```', 'Code-Beispiel anbei.', text)
     text = re.sub(r'`[^`\n]+`', '', text)
+    # URLs, HTML, Markdown-Syntax entfernen
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'^#{1,6}\s+.*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'\*{1,3}([^*\n]+)\*{1,3}', r'\1', text)
     text = re.sub(r'_{1,2}([^_\n]+)_{1,2}', r'\1', text)
     text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    # Tabellen-Zeilen komplett raus
+    text = re.sub(r'^\s*\|.*\|.*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*[-*+\d.]+\s+', '', text, flags=re.MULTILINE)
     text = re.sub(r'^[-=_]{3,}$', '', text, flags=re.MULTILINE)
     text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'[|~^\\]', '', text)
+    # Mehrfach-Zeilenumbrüche → Leerzeichen
     text = re.sub(r'\n+', ' ', text).strip()
     text = re.sub(r' {2,}', ' ', text)
-    text = re.sub(r'[|~^\\]', '', text)
+    # Klammern mit reinem Sonderzeichen-Inhalt weg
+    text = re.sub(r'\([^a-zA-ZäöüÄÖÜß]*\)', '', text)
+    # Füllwörter am Satzanfang entfernen (klingt besser gesprochen)
+    text = _SPOKEN_FILLER.sub('', text).strip()
     if not text:
         return ''
+    # Sätze aufteilen, sehr kurze (< 8 Zeichen) und reine Zahlenzeilen überspringen
     sentences = re.split(r'(?<=[.!?])\s+', text)
-    sentences = [s.strip() for s in sentences if len(s.strip()) > 10]
+    sentences = [
+        s.strip() for s in sentences
+        if len(s.strip()) > 8 and not re.fullmatch(r'[\d\s.,;:-]+', s.strip())
+    ]
     result = ''
-    for s in sentences[:2]:
+    for s in sentences[:3]:
         candidate = (result + ' ' + s).strip()
         if len(candidate) <= max_chars:
             result = candidate

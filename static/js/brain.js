@@ -1,164 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════════
-   JARVIS brain.js  v3 — Knowledge Sphere + Epic Background
+   JARVIS brain.js  v4 — Knowledge Sphere
+   (Background-Scene entfernt — wird von index.html initNexusScene gerendert)
    ═══════════════════════════════════════════════════════════════════ */
 (function () {
   'use strict';
-
-  /* ══════════════════════════════════════════════════════════════════
-     BACKGROUND — transparent overlay über Iron-Man-Bild
-  ══════════════════════════════════════════════════════════════════ */
-  function initBackground(canvas) {
-    if (!canvas || !window.THREE) return;
-    const W = window.innerWidth, H = window.innerHeight;
-    const scene = new THREE.Scene();
-    const cam   = new THREE.PerspectiveCamera(60, W / H, 0.1, 900);
-    cam.position.set(0, 28, 110);
-    cam.lookAt(0, -15, 0);
-
-    /* Transparent — Iron-Man-Bild liegt darunter (CSS) */
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
-    renderer.setSize(W, H);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-    renderer.setClearColor(0x000000, 0);
-
-    /* ── Grid floor — passend zur kreisförmigen Plattform ───────── */
-    function makeGrid(size, divs, yPos, color, opacity) {
-      const step = size / divs, half = size / 2;
-      const pts = [];
-      for (let i = 0; i <= divs; i++) {
-        const x = -half + i * step;
-        pts.push(x, 0, -half, x, 0, half);
-        pts.push(-half, 0, x, half, 0, x);
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-      const g = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
-        color, transparent: true, opacity,
-        blending: THREE.AdditiveBlending, depthWrite: false,
-      }));
-      g.position.y = yPos;
-      return g;
-    }
-    const grid1 = makeGrid(500, 40, -70, 0x004466, 0.35);
-    const grid2 = makeGrid(500, 40, -70, 0x004466, 0.35);
-    grid2.position.z = -500;
-    scene.add(grid1, grid2);
-
-    /* ── Konzentrische Plattform-Ringe (passen zum Bild) ─────────── */
-    const platformRings = [];
-    [55, 80, 105].forEach((r, i) => {
-      const geo = new THREE.RingGeometry(r - 0.8, r + 0.8, 120);
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0x00d4ff, transparent: true,
-        opacity: [0.12, 0.08, 0.05][i],
-        side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
-      });
-      const ring = new THREE.Mesh(geo, mat);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = -68;
-      scene.add(ring);
-      platformRings.push({ ring, base: [0.12, 0.08, 0.05][i] });
-    });
-
-    /* ── Expanding pulse rings vom Zentrum ─────────────────────── */
-    const pulseRings = [];
-    for (let i = 0; i < 6; i++) {
-      const geo = new THREE.RingGeometry(1, 2.2, 90);
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0x00c8ff, transparent: true, opacity: 0,
-        side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
-      });
-      const ring = new THREE.Mesh(geo, mat);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = -55;
-      ring.userData.phase = i / 6;
-      scene.add(ring);
-      pulseRings.push(ring);
-    }
-
-    /* ── Holographische Partikel — schweben über Plattform ───────── */
-    const partPts = [];
-    for (let i = 0; i < 180; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist  = 20 + Math.random() * 90;
-      partPts.push(
-        Math.cos(angle) * dist,
-        -50 + Math.random() * 80,
-        Math.sin(angle) * dist
-      );
-    }
-    const partGeo = new THREE.BufferGeometry();
-    partGeo.setAttribute('position', new THREE.Float32BufferAttribute(partPts, 3));
-    const particles = new THREE.Points(partGeo, new THREE.PointsMaterial({
-      color: 0x00d4ff, size: 0.35, transparent: true, opacity: 0.25,
-      blending: THREE.AdditiveBlending, depthWrite: false,
-    }));
-    scene.add(particles);
-
-    /* ── Scanning beam horizontal ───────────────────────────────── */
-    const beamGeo = new THREE.PlaneGeometry(700, 2.5);
-    const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({
-      color: 0x00e5a0, transparent: true, opacity: 0.04,
-      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
-    }));
-    beam.rotation.x = Math.PI / 2;
-    scene.add(beam);
-
-    /* ── Arc-Reactor-Glow-Halo (Mitte des Bildes) ───────────────── */
-    const glowGeo = new THREE.SphereGeometry(18, 16, 16);
-    const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
-      color: 0x00aaff, transparent: true, opacity: 0.03,
-      blending: THREE.AdditiveBlending, depthWrite: false,
-    }));
-    glow.position.set(0, 10, -10);
-    scene.add(glow);
-
-    let t = 0;
-    (function animBg() {
-      requestAnimationFrame(animBg);
-      t += 0.001;
-
-      /* Grid scrollt vorwärts */
-      const scrollZ = (t * 8) % 500;
-      grid1.position.z = scrollZ;
-      grid2.position.z = scrollZ - 500;
-
-      /* Pulse rings expandieren vom Plattform-Zentrum */
-      pulseRings.forEach(ring => {
-        const p = ((t * 0.35 + ring.userData.phase) % 1);
-        const s = 4 + p * 105;
-        ring.scale.set(s, s, 1);
-        ring.material.opacity = p < 0.08 ? p * 0.7 : (1 - p) * 0.07;
-      });
-
-      /* Plattform-Ringe pulsieren */
-      platformRings.forEach(({ ring, base }, i) => {
-        ring.material.opacity = base + Math.sin(t * 1.8 + i * 1.2) * base * 0.5;
-      });
-
-      /* Partikel langsam rotieren */
-      particles.rotation.y = t * 0.025;
-      particles.position.y = Math.sin(t * 0.4) * 4;
-
-      /* Scanning beam */
-      beam.position.y = -72 + 95 * ((Math.sin(t * 0.38) + 1) / 2);
-      beam.material.opacity = 0.02 + Math.abs(Math.sin(t * 0.7)) * 0.04;
-
-      /* Arc-Reactor-Glow atmet */
-      const breath = 0.025 + Math.sin(t * 1.1) * 0.015;
-      glow.material.opacity = breath;
-      const gs = 1 + Math.sin(t * 1.1) * 0.15;
-      glow.scale.set(gs, gs, gs);
-
-      renderer.render(scene, cam);
-    })();
-
-    window.addEventListener('resize', () => {
-      const nW = window.innerWidth, nH = window.innerHeight;
-      cam.aspect = nW / nH; cam.updateProjectionMatrix();
-      renderer.setSize(nW, nH);
-    });
-  }
 
   /* ══════════════════════════════════════════════════════════════════
      KNOWLEDGE SPHERE
@@ -304,7 +149,7 @@
       if (!isDragging) return;
       isDragging = false;
       canvas.style.cursor = 'grab';
-      setTimeout(() => { autoRotate = true; }, 3000);
+      setTimeout(() => { autoRotate = true; }, 8000);
     });
     canvas.style.cursor = 'grab';
 
@@ -677,7 +522,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', () => {
-    initBackground(document.getElementById('bg-canvas'));
     startClock();
     setInterval(_tickSessionClock, 1000);
     _tickSessionClock();

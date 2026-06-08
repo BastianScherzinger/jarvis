@@ -130,6 +130,7 @@ const _glassPanel = (() => {
       panel.style.setProperty('--mx', mx);
       panel.style.setProperty('--my', my);
       if (!inside || panel.classList.contains('dragging')) return;
+      if (e.target.tagName === 'CANVAS') return;
       const dx = (e.clientX - r.left - r.width  / 2) / (r.width  / 2);
       const dy = (e.clientY - r.top  - r.height / 2) / (r.height / 2);
       panel.style.transform =
@@ -177,68 +178,167 @@ document.addEventListener("DOMContentLoaded", () => {
   console.log("[JARVIS] init komplett");
 });
 
-/* ═══════════════════════ SATELLITE VIEW ═════════════════════════ */
-let _satActive = false;
+/* ═══════════════════════ SATELLITE VIEW ══════════════════════════ */
+let _satActive      = false;
+let _satGlobeInited = false;
+let _satGlobeMarkerLat = 48.14;
+let _satGlobeMarkerLon = 11.58;
 
-// Topbar SAT-Button
-function toggleSatelliteModal() {
-  _satActive ? deactivateSatView() : activateSatView();
-}
-
-// Logo-Bereich Toggle-Button
-function toggleSatelliteView() {
-  _satActive ? deactivateSatView() : activateSatView();
-}
+function toggleSatelliteModal() { _satActive ? deactivateSatView() : activateSatView(); }
+function toggleSatelliteView()  { _satActive ? deactivateSatView() : activateSatView(); }
 
 function activateSatView() {
+  if (_satActive) return;
   _satActive = true;
-  const logo     = document.getElementById("rp-logo");
-  const scanline = document.getElementById("rp-scanline");
-  const map      = document.getElementById("jarvis-map");
-  const ctrl     = document.getElementById("rp-sat-ctrl");
-  const satBtn   = document.getElementById("sat-btn");
-  const toggle   = document.getElementById("rp-sat-toggle");
-
-  if (logo)     logo.style.display    = "none";
-  if (scanline) scanline.style.display = "none";
-  if (map)      map.style.display     = "block";
-  if (ctrl)     ctrl.style.display    = "flex";
-  if (satBtn)   satBtn.classList.add("active");
-  if (toggle)   toggle.classList.add("active");
-
-  // Leaflet initialisieren / Größe aktualisieren
-  if (typeof L !== "undefined") {
-    if (!window._leafletMap) {
-      setTimeout(initLeafletMap, 120);
-    } else {
-      setTimeout(() => window._leafletMap.invalidateSize(), 120);
-    }
-  }
-  showToast("Satelliten-Ansicht aktiviert");
+  const modal = document.getElementById('sat-modal');
+  if (!modal) return;
+  modal.style.display = 'block';
+  requestAnimationFrame(() => requestAnimationFrame(() => modal.classList.add('sat-open')));
+  document.getElementById('sat-btn')?.classList.add('active');
+  document.getElementById('rp-sat-toggle')?.classList.add('active');
+  // Init map: erst nach Layout-Pass, dann nochmal nach Animation
+  setTimeout(() => {
+    if (!window._leafletMap) initLeafletMap();
+    else window._leafletMap.invalidateSize(true);
+  }, 200);
+  setTimeout(() => {
+    if (window._leafletMap) window._leafletMap.invalidateSize(true);
+  }, 700);
+  if (!_satGlobeInited) { _satGlobeInited = true; setTimeout(initSatGlobe, 450); }
+  window._satEscHandler = e => { if (e.key === 'Escape') deactivateSatView(); };
+  window.addEventListener('keydown', window._satEscHandler);
+  showToast('Satelliten-Ansicht aktiviert, Sir.');
 }
 
 function deactivateSatView() {
+  if (!_satActive) return;
   _satActive = false;
-  const logo     = document.getElementById("rp-logo");
-  const scanline = document.getElementById("rp-scanline");
-  const map      = document.getElementById("jarvis-map");
-  const ctrl     = document.getElementById("rp-sat-ctrl");
-  const satBtn   = document.getElementById("sat-btn");
-  const toggle   = document.getElementById("rp-sat-toggle");
-
-  if (logo)     logo.style.display    = "";
-  if (scanline) scanline.style.display = "";
-  if (map)      map.style.display     = "none";
-  if (ctrl)     ctrl.style.display    = "none";
-  if (satBtn)   satBtn.classList.remove("active");
-  if (toggle)   toggle.classList.remove("active");
-  showToast("Logo-Ansicht");
+  const modal = document.getElementById('sat-modal');
+  if (!modal) return;
+  modal.classList.remove('sat-open');
+  modal.classList.add('sat-closing');
+  setTimeout(() => { modal.style.display = 'none'; modal.classList.remove('sat-closing'); }, 340);
+  document.getElementById('sat-btn')?.classList.remove('active');
+  document.getElementById('rp-sat-toggle')?.classList.remove('active');
+  if (window._satEscHandler) { window.removeEventListener('keydown', window._satEscHandler); window._satEscHandler = null; }
+  showToast('Satelliten-Ansicht geschlossen.');
 }
 
+function satSearch() {
+  const v = (document.getElementById('sat-search-inp')?.value || '').trim();
+  if (v) satGoToCity(v);
+}
+
+function satGoToCity(city) {
+  if (!city || !window._leafletMap) { if (city && !window._leafletMap) activateSatView(); return; }
+  const lock = document.getElementById('sat-lock-overlay');
+  const lockRing = document.getElementById('sat-lock-ring');
+  const lockTxt  = document.getElementById('sat-lock-text');
+  if (lock) lock.style.display = 'flex';
+  // Restart animations
+  [lockRing, lockTxt].forEach(el => { if (!el) return; el.classList.remove('anim'); void el.offsetWidth; el.classList.add('anim'); });
+  if (lockTxt) lockTxt.textContent = city.toUpperCase().slice(0, 22);
+
+  fetch('https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(city) + '&format=json&limit=1&accept-language=de')
+    .then(r => r.json())
+    .then(data => {
+      if (!data || !data.length) { if (lock) lock.style.display = 'none'; showToast('Ziel nicht gefunden.'); return; }
+      const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
+      const type = data[0].type;
+      const zoom = type === 'country' ? 5 : (type === 'state' || type === 'administrative') ? 7 : (type === 'city' || type === 'town') ? 11 : 13;
+      window._leafletMap.flyTo([lat, lng], zoom, { duration: 1.8, easeLinearity: 0.3 });
+      _satGlobeMarkerLat = lat; _satGlobeMarkerLon = lng;
+      setTimeout(() => { if (lock) lock.style.display = 'none'; }, 2400);
+    })
+    .catch(() => { if (lock) lock.style.display = 'none'; showToast('Geocoding fehlgeschlagen.'); });
+}
+
+function _satUpdateDisplay(lat, lon, zoom) {
+  const $ = id => document.getElementById(id);
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+  set('sat-lat-val', lat.toFixed(4));
+  set('sat-lon-val', lon.toFixed(4));
+  set('sat-zoom-val', zoom);
+  const km = Math.round(40000 / Math.pow(2, zoom));
+  set('sat-alt-val', km > 999 ? (km / 1000).toFixed(0) + 'k km' : km + ' km');
+  const tgt = $('sat-ch-target');
+  if (tgt) tgt.textContent = Math.abs(lat).toFixed(4) + '° ' + (lat >= 0 ? 'N' : 'S') + '  ' + Math.abs(lon).toFixed(4) + '° ' + (lon >= 0 ? 'E' : 'W');
+  _satGlobeMarkerLat = lat; _satGlobeMarkerLon = lon;
+}
+
+/* ── Three.js globe widget ─────────────────────────────────────── */
+function initSatGlobe() {
+  const canvas = document.getElementById('sat-globe-canvas');
+  if (!canvas || !window.THREE) return;
+  const SIZE = 100;
+  canvas.width = canvas.height = SIZE * (window.devicePixelRatio || 1);
+  canvas.style.width = canvas.style.height = SIZE + 'px';
+
+  const scene = new THREE.Scene();
+  const cam   = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+  cam.position.z = 2.55;
+  const rend = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  rend.setSize(SIZE, SIZE, false);
+  rend.setPixelRatio(window.devicePixelRatio || 1);
+  rend.setClearColor(0x000000, 0);
+
+  /* Procedural Earth texture */
+  const tc = document.createElement('canvas'); tc.width = 512; tc.height = 256;
+  const tx = tc.getContext('2d');
+  tx.fillStyle = '#030d25'; tx.fillRect(0, 0, 512, 256);
+  tx.fillStyle = 'rgba(8,60,22,.88)';
+  [[265,88,22,28,-.2],[272,152,18,44,.1],[105,82,36,42,.3],[118,168,18,36,.1],[375,90,82,38,-.1],[405,162,22,16,.2],[510,82,20,25,.1],[10,82,20,25,.1]].forEach(([cx,cy,rx,ry,a]) => { tx.beginPath(); tx.ellipse(cx,cy,rx,ry,a,0,Math.PI*2); tx.fill(); });
+  for (let y = 0; y < 256; y += 3) { tx.fillStyle = `rgba(0,80,160,${.025+Math.sin(y/15)*.015})`; tx.fillRect(0,y,512,2); }
+  tx.fillStyle = 'rgba(160,200,255,.07)';
+  for (let i = 0; i < 18; i++) { const cx=Math.random()*512,cy=Math.random()*256; tx.beginPath(); tx.ellipse(cx,cy,25+Math.random()*35,6+Math.random()*10,Math.random()*Math.PI,0,Math.PI*2); tx.fill(); }
+  const earthTex = new THREE.CanvasTexture(tc);
+
+  const earth = new THREE.Mesh(new THREE.SphereGeometry(1,64,32), new THREE.MeshPhongMaterial({ map: earthTex, specular: 0x080820, shininess: 10 }));
+  scene.add(earth);
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.07,32,16), new THREE.MeshBasicMaterial({ color:0x0055ee, transparent:true, opacity:.09, blending:THREE.AdditiveBlending, side:THREE.FrontSide, depthWrite:false })));
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.15,32,16), new THREE.MeshBasicMaterial({ color:0x0033aa, transparent:true, opacity:.04, blending:THREE.AdditiveBlending, side:THREE.FrontSide, depthWrite:false })));
+
+  const sunLight = new THREE.DirectionalLight(0x88aaff, 1.6); sunLight.position.set(4,2,3); scene.add(sunLight);
+  scene.add(new THREE.AmbientLight(0x0a1a3a, 2.2));
+
+  const marker     = new THREE.Mesh(new THREE.SphereGeometry(.032,8,8), new THREE.MeshBasicMaterial({ color:0xff2233 }));
+  const markerHalo = new THREE.Mesh(new THREE.SphereGeometry(.07,8,8),  new THREE.MeshBasicMaterial({ color:0xff0000, transparent:true, opacity:.25, blending:THREE.AdditiveBlending }));
+  scene.add(marker); scene.add(markerHalo);
+
+  let _rotY = 0;
+  function _placeMarker(lat, lon) {
+    const phi = (90 - lat) * Math.PI / 180;
+    const lon_rad = (lon + 180) * Math.PI / 180;
+    const p = new THREE.Vector3(-Math.sin(phi)*Math.cos(lon_rad + _rotY), Math.cos(phi), Math.sin(phi)*Math.sin(lon_rad + _rotY)).multiplyScalar(1.06);
+    marker.position.copy(p); markerHalo.position.copy(p);
+  }
+  let t = 0;
+  (function animGlobe() {
+    requestAnimationFrame(animGlobe);
+    t += .005; _rotY = t * .3;
+    earth.rotation.y = _rotY;
+    _placeMarker(_satGlobeMarkerLat, _satGlobeMarkerLon);
+    markerHalo.scale.setScalar(1 + .3 * Math.sin(t * 4));
+    rend.render(scene, cam);
+  })();
+}
+
+/* ── Keyword detection ─────────────────────────────────────────── */
 function _checkSatKeyword(text) {
+  // Zoom commands
+  if (_satActive && window._leafletMap) {
+    if (/zoom\s*(rein|in|näher|heran|closer)/i.test(text))   { window._leafletMap.zoomIn(2); return; }
+    if (/zoom\s*(raus|out|weiter|weg|entfern|zurück)/i.test(text)) { window._leafletMap.zoomOut(2); return; }
+  }
+  // Navigation: "zeig Berlin", "geh nach New York", "navigiere zu Tokyo"
+  const NAV = /(?:zeig(?:e|en)?\s+(?:mir\s+)?|geh(?:e)?\s+(?:nach|zu)\s+|navigier\w*\s+(?:nach|zu)\s+|flieg\w*\s+(?:nach|zu)\s+|karte\s+(?:von\s+)?|suche?\s+)([A-ZÄÖÜa-zäöüß][A-ZÄÖÜa-zäöüß\s\-]{1,40})/i;
+  const navM = text.match(NAV);
+  if (navM && _satActive) {
+    const city = navM[1].trim().replace(/[.,!?]+$/, '');
+    if (city.length >= 2) { setTimeout(() => satGoToCity(city), 150); return; }
+  }
   const isSat = /satellit|satellite|sat[- ]?view|planet[- ]?view|weltall|orbit/i.test(text);
   if (!isSat) return;
-  // Verb-Wurzeln ohne End-\b damit "aktiviert", "starte", "geöffnet" etc. greifen
   const isOn  = /\b(an|ein)\b|aktivier|aktiv\b|starte?\b|start\b|zeig|öffn|anzeig|einblend|mach\b|einschalten|anschalten|schalte?\s*(den|die)?\s*(satellit|sat)|launch|activate\w*|turn.?on/i.test(text);
   const isOff = /\b(aus|deaktiv|close|schließ|stopp|abschalten|ausblend|ausschalten|turn.?off)\b/i.test(text);
   if (isOff)      { setTimeout(deactivateSatView, 400); }
@@ -248,39 +348,18 @@ function _checkSatKeyword(text) {
 
 function _showSatPrompt() {
   if (_satActive) return;
-  const msgArea = document.getElementById("messages");
-  if (!msgArea || msgArea.style.display === "none") return;
-  const ex = document.getElementById("sat-prompt-card");
-  if (ex) ex.remove();
-
-  const div = document.createElement("div");
-  div.className = "message assistant";
-  div.id = "sat-prompt-card";
-  div.innerHTML = `
-    <div class="msg-av jarvis">
-      <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
-        <polygon points="10,2 18,6.5 18,13.5 10,18 2,13.5 2,6.5" stroke="currentColor" stroke-width="1.5" fill="none"/>
-        <circle cx="10" cy="10" r="2.5" fill="currentColor" opacity=".6"/>
-      </svg>
-    </div>
-    <div class="msg-body">
-      <span class="msg-name">JARVIS</span>
-      <div class="msg-bubble">
-        Soll ich die Satelliten-Ansicht aktivieren, Sir?
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <button onclick="confirmSat(true)" class="sat-confirm-btn sat-yes">JA — AKTIVIEREN</button>
-          <button onclick="confirmSat(false)" class="sat-confirm-btn sat-no">NEIN</button>
-        </div>
-      </div>
-      <span class="msg-time">${ts()}</span>
-    </div>`;
+  const msgArea = document.getElementById('messages');
+  if (!msgArea || msgArea.style.display === 'none') return;
+  document.getElementById('sat-prompt-card')?.remove();
+  const div = document.createElement('div');
+  div.className = 'message assistant'; div.id = 'sat-prompt-card';
+  div.innerHTML = `<div class="msg-av jarvis"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><polygon points="10,2 18,6.5 18,13.5 10,18 2,13.5 2,6.5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="10" cy="10" r="2.5" fill="currentColor" opacity=".6"/></svg></div><div class="msg-body"><span class="msg-name">JARVIS</span><div class="msg-bubble">Soll ich die Satelliten-Ansicht aktivieren, Sir?<div style="display:flex;gap:8px;margin-top:10px"><button onclick="confirmSat(true)" class="sat-confirm-btn sat-yes">JA — AKTIVIEREN</button><button onclick="confirmSat(false)" class="sat-confirm-btn sat-no">NEIN</button></div></div><span class="msg-time">${ts()}</span></div>`;
   msgArea.appendChild(div);
   scrollMessages();
 }
 
 function confirmSat(yes) {
-  const card = document.getElementById("sat-prompt-card");
-  if (card) card.remove();
+  document.getElementById('sat-prompt-card')?.remove();
   if (yes) activateSatView();
 }
 

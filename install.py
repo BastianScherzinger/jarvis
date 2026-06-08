@@ -63,6 +63,17 @@ def run() -> bool:
     _header()
     all_ok = True
 
+    # ── System-Analyse ──────────────────────────────────────────────
+    _profile = None
+    _recommended_model = "qwen2.5:7b"
+    try:
+        import system_profile as _sp
+        _profile = _sp.analyze()
+        _sp.print_banner(_profile)
+        _recommended_model = _profile.get("local_model", "qwen2.5:7b")
+    except Exception as _e:
+        _warn("System-Analyse fehlgeschlagen", str(_e)[:60])
+
     # ── Git Update ───────────────────────────────────────────────────
     import shutil
     if shutil.which("git") and (HERE / ".git").exists():
@@ -233,17 +244,23 @@ def run() -> bool:
         if not has_model:
             print()
             print(f"  {CY}{'─' * 56}{R}")
-            print(f"  {CY}{B}  Lokales KI-Modell waehlen{R}  {GY}(je nach Hardware){R}")
+            print(f"  {CY}{B}  Lokales KI-Modell{R}  {GY}(Empfehlung basiert auf Ihrer Hardware){R}")
             print(f"  {CY}{'─' * 56}{R}")
             for k, m in MODELS.items():
-                print(f"  [{k}]  {B}{m['key'].upper():<10}{R}  {m['name']:<20}  {GY}{m['desc']}{R}")
+                marker = f"  {GR}← empfohlen{R}" if m["name"] == _recommended_model else ""
+                print(f"  [{k}]  {B}{m['key'].upper():<10}{R}  {m['name']:<20}  {GY}{m['desc']}{R}{marker}")
             print(f"  [0]  Ueberspringen  {GY}(kein lokales Modell){R}")
             print()
+            _auto_key = next((k for k, v in MODELS.items() if v["name"] == _recommended_model), None)
+            if _auto_key:
+                print(f"  {CY}Empfehlung:{R} {B}{_recommended_model}{R}  {GY}(Enter = uebernehmen){R}")
             keys = "/".join(["0"] + list(MODELS.keys()))
             try:
-                choice = input(f"  {CY}Auswahl ({keys}):{R} ").strip()
+                choice = input(f"  {CY}Auswahl ({keys}) [Enter = empfohlen]:{R} ").strip()
             except (EOFError, KeyboardInterrupt):
-                choice = "0"
+                choice = _auto_key or "0"
+            if choice == "" and _auto_key:
+                choice = _auto_key
 
             if choice in MODELS:
                 chosen = MODELS[choice]
@@ -346,6 +363,14 @@ def run() -> bool:
     # ── workspace-Ordner anlegen ────────────────────────────────────
     for d in ["workspace/tasks", "workspace/results"]:
         (HERE / d).mkdir(parents=True, exist_ok=True)
+
+    # ── System-Profil ins Brain schreiben ───────────────────────────
+    if _profile is not None:
+        try:
+            _sp.write_profile(_profile, str(HERE))
+            _ok("System-Profil", f"obsidian_brain/system_profile.md")
+        except Exception:
+            pass
 
     # ── Abschluss ───────────────────────────────────────────────────
     print()

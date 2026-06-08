@@ -309,6 +309,19 @@ def recognition_loop(lang: str, dev_idx: int, rate: int, thresh: float):
                     pre_buf.clear()
                     continue
 
+                # ── 3b. Musik-/Rauschen-Detektion ────────────────
+                # Sprache hat hohe RMS-Varianz (Silben); Musik ist gleichmäßig
+                all_rms = [r for _, r in phrase]
+                if len(all_rms) > 8:
+                    rms_mean = float(np.mean(all_rms))
+                    rms_std  = float(np.std(all_rms))
+                    cv = rms_std / (rms_mean + 1e-9)
+                    if rms_mean > thresh * 0.3 and cv < 0.22:
+                        vu_print(rms_mean, thresh, False)
+                        print(f"\n[{ts()}]  Hintergrundgeräusch (cv={cv:.3f}) — ignoriert")
+                        pre_buf.clear()
+                        continue
+
                 # ── 4. Float32 → int16 WAV (normalisiert) ────────
                 audio_f32 = np.concatenate([c for c, _ in phrase], axis=0)
                 # Normalisieren: leises Mikrofon auf vernünftigen Pegel anheben

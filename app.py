@@ -24,13 +24,37 @@ log.banner()
 
 # ── Bekannte Ollama-Modell-Tiers ───────────────────────────────────
 _MODELS = [
-    {"id": "llama3.2:1b",  "key": "tiny",    "name": "Llama 3.2 1B",  "desc": "Jede Hardware",   "vram": "~1 GB",  "tier": 1},
-    {"id": "qwen2.5:3b",   "key": "small",   "name": "Qwen 2.5 3B",   "desc": "Schwache PCs",    "vram": "~4 GB",  "tier": 2},
-    {"id": "qwen2.5:7b",   "key": "laptop",  "name": "Qwen 2.5 7B",   "desc": "Laptop",          "vram": "~8 GB",  "tier": 3},
-    {"id": "qwen2.5:14b",  "key": "medium",  "name": "Qwen 2.5 14B",  "desc": "Desktop 16 GB",   "vram": "~16 GB", "tier": 4},
-    {"id": "qwen2.5:32b",  "key": "large",   "name": "Qwen 2.5 32B",  "desc": "Desktop 32 GB",   "vram": "~32 GB", "tier": 5},
-    {"id": "llama3.3:70b", "key": "allware", "name": "Llama 3.3 70B", "desc": "High-End Server",  "vram": "~48 GB", "tier": 6},
+    {"id": "llama3.2:1b",        "key": "tiny",   "name": "Llama 3.2 1B",       "desc": "Jede Hardware",  "ram_gb": 1.5, "vram": "~1 GB",  "tier": 1},
+    {"id": "qwen2.5-coder:1.5b", "key": "coder",  "name": "Qwen 2.5 Coder 1.5B","desc": "Code-Spezialist","ram_gb": 1.5, "vram": "~1 GB",  "tier": 1},
+    {"id": "qwen2.5:3b",         "key": "small",  "name": "Qwen 2.5 3B",        "desc": "Schwache PCs",   "ram_gb": 4.0, "vram": "~4 GB",  "tier": 2},
+    {"id": "qwen2.5:7b",         "key": "laptop", "name": "Qwen 2.5 7B",        "desc": "Laptop 8 GB",    "ram_gb": 8.0, "vram": "~8 GB",  "tier": 3},
+    {"id": "qwen2.5:14b",        "key": "medium", "name": "Qwen 2.5 14B",       "desc": "Desktop 16 GB",  "ram_gb": 16.0,"vram": "~16 GB", "tier": 4},
+    {"id": "qwen2.5:32b",        "key": "large",  "name": "Qwen 2.5 32B",       "desc": "Desktop 32 GB",  "ram_gb": 32.0,"vram": "~32 GB", "tier": 5},
+    {"id": "llama3.3:70b",       "key": "allware","name": "Llama 3.3 70B",      "desc": "High-End Server", "ram_gb": 48.0,"vram": "~48 GB", "tier": 6},
 ]
+
+
+def _get_ram_gb() -> tuple:
+    """Gibt (total_gb, free_gb) zurück. Nutzt Windows GlobalMemoryStatusEx via ctypes."""
+    try:
+        import ctypes
+        class _MS(ctypes.Structure):
+            _fields_ = [
+                ("dwLength",              ctypes.c_ulong),
+                ("dwMemoryLoad",          ctypes.c_ulong),
+                ("ullTotalPhys",          ctypes.c_ulonglong),
+                ("ullAvailPhys",          ctypes.c_ulonglong),
+                ("ullTotalPageFile",      ctypes.c_ulonglong),
+                ("ullAvailPageFile",      ctypes.c_ulonglong),
+                ("ullTotalVirtual",       ctypes.c_ulonglong),
+                ("ullAvailVirtual",       ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+        ms = _MS(); ms.dwLength = ctypes.sizeof(ms)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms))
+        return round(ms.ullTotalPhys / 1e9, 1), round(ms.ullAvailPhys / 1e9, 1)
+    except Exception:
+        return 0.0, 0.0
 
 
 def _check_ollama() -> None:
@@ -428,9 +452,10 @@ def api_status():
 @app.route("/api/models")
 def api_models():
     import shutil as _sh
-    ollama_ok   = _sh.which("ollama") is not None
-    active      = os.environ.get("JARVIS_LOCAL_MODEL", "")
-    installed   = set()
+    ollama_ok      = _sh.which("ollama") is not None
+    active         = os.environ.get("JARVIS_LOCAL_MODEL", "")
+    installed_ids  = set()          # exakte IDs aus "ollama list"
+    ram_total, ram_free = _get_ram_gb()
 
     if ollama_ok:
         try:
@@ -440,17 +465,34 @@ def api_models():
             )
             for line in res.stdout.splitlines():
                 parts = line.split()
-                if not parts: continue
-                for m in _MODELS:
-                    if m["id"].split(":")[0] == parts[0].split(":")[0]:
-                        installed.add(m["id"])
+                if not parts or parts[0].lower() in ("name",): continue
+                installed_ids.add(parts[0])
         except Exception:
             pass
 
-    out = [{**m, "installed": m["id"] in installed,
-             "active": m["id"] == active, "ollama_ok": ollama_ok}
-           for m in _MODELS]
-    return jsonify({"models": out, "active": active, "ollama": ollama_ok})
+    _known_ids = {m["id"] for m in _MODELS}
+    out = []
+    for m in _MODELS:
+        # Exakte ID oder "<name>:latest" als installiert werten
+        is_inst = m["id"] in installed_ids or (m["id"].split(":")[0] + ":latest") in installed_ids
+        out.append({**m, "installed": is_inst, "active": m["id"] == active, "ollama_ok": ollama_ok})
+
+    # Aktives Modell an erster Stelle einfügen, wenn nicht in Standardliste
+    if active and active not in _known_ids:
+        is_inst = active in installed_ids
+        out.insert(0, {
+            "id": active, "key": "custom", "name": active,
+            "desc": "Benutzerdefiniert (aktiv)", "ram_gb": 0, "vram": "?", "tier": 0,
+            "installed": is_inst, "active": True, "ollama_ok": ollama_ok,
+        })
+
+    return jsonify({
+        "models":    out,
+        "active":    active,
+        "ollama":    ollama_ok,
+        "ram_total": ram_total,
+        "ram_free":  ram_free,
+    })
 
 
 @app.route("/api/models/install", methods=["POST"])
@@ -495,10 +537,29 @@ def api_models_install():
 @app.route("/api/models/select", methods=["POST"])
 def api_models_select():
     import re as _re
+    import shutil as _sh
     data     = request.get_json() or {}
     model_id = data.get("model", "").strip()
-    if model_id not in {m["id"] for m in _MODELS}:
-        return jsonify({"error": "Unbekanntes Modell"}), 400
+    known_ids = {m["id"] for m in _MODELS}
+
+    # Custom-Modelle erlauben wenn sie in Ollama installiert sind
+    if model_id not in known_ids:
+        installed_ok = False
+        if _sh.which("ollama"):
+            try:
+                res = subprocess.run(
+                    ["ollama", "list"], capture_output=True, text=True, timeout=6,
+                    encoding="utf-8", errors="replace",
+                )
+                installed_ok = any(
+                    line.split()[0] == model_id
+                    for line in res.stdout.splitlines()
+                    if line.split()
+                )
+            except Exception:
+                pass
+        if not installed_ok:
+            return jsonify({"error": "Modell nicht in Standardliste und nicht installiert"}), 400
 
     env_path = Path(__file__).parent / ".env"
     if env_path.exists():

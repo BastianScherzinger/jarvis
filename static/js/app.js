@@ -179,46 +179,82 @@ async function openModelDrop() {
   if (!drop) return;
   drop.classList.add("open");
   if (sel) sel.classList.add("drop-open");
+  const inner = document.getElementById("model-drop-inner");
+  if (inner) inner.innerHTML = '<div class="mdc-loading">Lade…</div>';
 
   try {
-    const data   = await fetch("/api/models").then(r => r.json());
-    const inner  = document.getElementById("model-drop-inner");
+    const data  = await fetch("/api/models").then(r => r.json());
     if (!inner) return;
 
-    // Topbar-Badge aktualisieren
-    const active = data.models.find(m => m.active);
+    const active   = data.models.find(m => m.active);
     _updateModelBadge(active);
 
-    const ollama = data.ollama;
-    inner.innerHTML = data.models.map(m => `
-      <div class="mdc ${m.active ? "mdc-active" : ""}" id="mdc-${m.key}">
-        <div class="mdc-head">
-          <div class="mdc-tier-wrap">
-            <span class="mdc-tier">T${m.tier}</span>
-            ${m.installed ? '<span class="mdc-dot-ok">●</span>' : ''}
-          </div>
-          <div class="mdc-info">
-            <span class="mdc-name">${m.id}</span>
-            <span class="mdc-meta">${m.desc} · <span class="mdc-vram">${m.vram}</span></span>
-          </div>
-          <div class="mdc-action">
-            ${m.active
-              ? '<span class="mdc-badge-active">◉ AKTIV</span>'
-              : m.installed
-                ? `<button class="mdc-btn mdc-sel" onclick="selectModelDrop('${m.id}')">WÄHLEN</button>`
-                : `<button class="mdc-btn mdc-inst" onclick="installModelDrop('${m.id}')"${!ollama ? ' disabled title="Ollama nicht installiert"' : ''}>LADEN</button>`
-            }
-          </div>
+    const ollama   = data.ollama;
+    const ramFree  = data.ram_free  || 0;
+    const ramTotal = data.ram_total || 0;
+    const ramPct   = ramTotal > 0 ? Math.round((ramFree / ramTotal) * 100) : 0;
+    const ramColor = ramFree < 2 ? "var(--danger)" : ramFree < 4 ? "#f59e0b" : "var(--accent)";
+
+    const ramBar = `
+      <div class="mdc-ram-bar">
+        <span class="mdc-ram-label">RAM</span>
+        <div class="mdc-ram-track">
+          <div class="mdc-ram-fill" style="width:${100 - ramPct}%;background:${ramColor}"></div>
         </div>
-        <div class="mdc-pbar-wrap" id="mdc-pb-${m.key}" style="display:none">
-          <div class="mdc-pbar-track"><div class="mdc-pbar-fill" id="mdc-pf-${m.key}"></div></div>
-          <span class="mdc-ptext" id="mdc-pt-${m.key}">Lade...</span>
-        </div>
-      </div>`).join("") +
-      (!ollama ? '<div class="mdc-warn">Ollama nicht installiert — <a href="https://ollama.com" target="_blank" style="color:var(--cyan)">ollama.com</a></div>' : "");
+        <span class="mdc-ram-val" style="color:${ramColor}">${ramFree.toFixed(1)} GB frei / ${ramTotal.toFixed(1)} GB</span>
+      </div>`;
+
+    const cards = data.models.map(m => {
+      const ramNeeded  = m.ram_gb || 0;
+      const notEnough  = ramNeeded > 0 && ramFree < ramNeeded && !m.installed;
+      const tierLabel  = m.tier > 0 ? `T${m.tier}` : "✦";
+      const statusDot  = m.installed
+        ? `<span class="mdc-dot-ok" title="Installiert">▲</span>`
+        : `<span class="mdc-dot-no" title="Nicht installiert">○</span>`;
+      const ramWarn    = notEnough
+        ? `<span class="mdc-ram-warn" title="Nicht genug RAM (${ramFree.toFixed(1)} GB frei, ${m.vram} benötigt)">⚠ RAM</span>`
+        : "";
+      const actionBtn  = m.active
+        ? `<span class="mdc-badge-active">◉ AKTIV</span>`
+        : m.installed
+          ? `<button class="mdc-btn mdc-sel" onclick="selectModelDrop('${m.id}')">AKTIVIEREN</button>`
+          : `<button class="mdc-btn mdc-inst" onclick="installModelDrop('${m.id}','${m.key}')"
+               ${!ollama ? 'disabled title="Ollama nicht installiert"' : ''}
+               ${notEnough ? `title="Nur ${ramFree.toFixed(1)} GB RAM frei — ${m.vram} benötigt"` : ''}>LADEN</button>`;
+      return `
+        <div class="mdc ${m.active ? "mdc-active" : m.installed ? "mdc-ready" : ""}" id="mdc-${m.key}">
+          <div class="mdc-head">
+            <div class="mdc-tier-wrap">
+              <span class="mdc-tier">${tierLabel}</span>
+              ${statusDot}
+            </div>
+            <div class="mdc-info">
+              <div class="mdc-name-row">
+                <span class="mdc-name">${m.name || m.id}</span>
+                ${ramWarn}
+              </div>
+              <span class="mdc-meta">
+                <span class="mdc-id">${m.id}</span>
+                · ${m.desc}
+                · <span class="mdc-vram">${m.vram}</span>
+              </span>
+            </div>
+            <div class="mdc-action">${actionBtn}</div>
+          </div>
+          <div class="mdc-pbar-wrap" id="mdc-pb-${m.key}" style="display:none">
+            <div class="mdc-pbar-track"><div class="mdc-pbar-fill" id="mdc-pf-${m.key}"></div></div>
+            <span class="mdc-ptext" id="mdc-pt-${m.key}">Lade…</span>
+          </div>
+        </div>`;
+    }).join("");
+
+    const footer = !ollama
+      ? `<div class="mdc-warn">Ollama nicht installiert — <a href="https://ollama.com" target="_blank" style="color:var(--cyan)">ollama.com</a></div>`
+      : "";
+
+    inner.innerHTML = ramBar + cards + footer;
 
   } catch(e) {
-    const inner = document.getElementById("model-drop-inner");
     if (inner) inner.innerHTML = `<div class="mdc-warn" style="color:var(--danger)">Fehler: ${e.message}</div>`;
   }
 }
@@ -234,8 +270,13 @@ function closeModelDrop() {
 function _updateModelBadge(active) {
   const nameEl = document.getElementById("tb-model-name");
   const dotEl  = document.getElementById("tb-model-dot");
-  if (nameEl) nameEl.textContent = active ? active.key.toUpperCase() : "KI";
-  if (dotEl)  dotEl.style.background = active ? "var(--accent)" : "var(--text-3)";
+  if (nameEl) {
+    const label = active
+      ? (active.key === "custom" ? active.id.split(":")[0].toUpperCase() : active.key.toUpperCase())
+      : "KI";
+    nameEl.textContent = label;
+  }
+  if (dotEl) dotEl.style.background = active ? "var(--accent)" : "var(--text-3)";
 }
 
 // Außerhalb klicken → schließen
@@ -265,18 +306,15 @@ async function selectModelDrop(modelId) {
   } catch { showToast("Fehler beim Auswählen"); }
 }
 
-async function installModelDrop(modelId) {
+async function installModelDrop(modelId, modelKey) {
   if (_installInProgress) { showToast("Installation läuft..."); return; }
   _installInProgress = modelId;
 
-  const data = await fetch("/api/models").then(r => r.json()).catch(() => null);
-  if (!data) { _installInProgress = null; return; }
-  const m = data.models.find(x => x.id === modelId);
-  if (!m)   { _installInProgress = null; return; }
-
-  const prog  = document.getElementById(`mdc-pb-${m.key}`);
-  const ptext = document.getElementById(`mdc-pt-${m.key}`);
-  const pfill = document.getElementById(`mdc-pf-${m.key}`);
+  // modelKey kommt direkt vom Button-Aufruf — kein extra API-Call nötig
+  const key   = modelKey || modelId.replace(/[^a-z0-9]/gi, "_");
+  const prog  = document.getElementById(`mdc-pb-${key}`);
+  const ptext = document.getElementById(`mdc-pt-${key}`);
+  const pfill = document.getElementById(`mdc-pf-${key}`);
   if (prog)  prog.style.display  = "block";
   if (pfill) pfill.style.width   = "5%";
 

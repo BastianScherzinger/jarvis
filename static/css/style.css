@@ -1005,23 +1005,34 @@ body {
 .mdc-head { display:flex; align-items:center; gap:8px; }
 .mdc-tier-wrap { display:flex; flex-direction:column; align-items:center; gap:2px; flex-shrink:0; }
 .mdc-tier { font-family:var(--font-hud); font-size:.48rem; color:var(--text-3); background:rgba(0,212,255,.09); border:1px solid var(--border-c); border-radius:2px; padding:1px 4px; letter-spacing:.11em; white-space:nowrap; }
-.mdc-dot-ok { font-size:7px; color:var(--accent); line-height:1; text-shadow:0 0 5px var(--accent); }
-.mdc-info { flex:1; display:flex; flex-direction:column; gap:2px; min-width:0; }
-.mdc-name { font-family:var(--font-data); font-size:11.5px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500; }
-.mdc-meta { font-size:9px; color:var(--text-3); letter-spacing:.04em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.mdc-vram  { color:var(--text-2); opacity:.7; }
-.mdc-action { flex-shrink:0; }
+.mdc-dot-ok  { font-size:8px; color:var(--accent); line-height:1; text-shadow:0 0 6px var(--accent); }
+.mdc-dot-no  { font-size:8px; color:rgba(255,255,255,.18); line-height:1; }
+.mdc-ready   { border-color:rgba(0,229,160,.25)!important; }
+.mdc-info    { flex:1; display:flex; flex-direction:column; gap:2px; min-width:0; }
+.mdc-name-row{ display:flex; align-items:center; gap:5px; min-width:0; }
+.mdc-name    { font-family:var(--font-data); font-size:11.5px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500; }
+.mdc-meta    { font-size:9px; color:var(--text-3); letter-spacing:.04em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mdc-id      { color:rgba(0,212,255,.45); font-family:var(--font-data); }
+.mdc-vram    { color:var(--text-2); opacity:.7; }
+.mdc-action  { flex-shrink:0; }
 .mdc-badge-active { font-family:var(--font-hud); font-size:.48rem; color:var(--cyan); letter-spacing:.13em; text-shadow:0 0 6px var(--cyan-glow); animation:dotPulse 2s ease-in-out infinite; }
-.mdc-btn { font-family:var(--font-hud); font-size:.50rem; letter-spacing:.11em; padding:4px 9px; border-radius:5px; cursor:pointer; transition:all .15s; white-space:nowrap; }
+.mdc-ram-warn { font-family:var(--font-hud); font-size:.42rem; color:#f59e0b; letter-spacing:.08em; white-space:nowrap; flex-shrink:0; text-shadow:0 0 6px rgba(245,158,11,.5); }
+.mdc-btn  { font-family:var(--font-hud); font-size:.50rem; letter-spacing:.11em; padding:4px 10px; border-radius:5px; cursor:pointer; transition:all .15s; white-space:nowrap; }
 .mdc-btn:disabled { opacity:.35; cursor:not-allowed; }
 .mdc-sel  { background:rgba(0,212,255,.09); border:1px solid rgba(0,212,255,.32); color:var(--cyan); }
 .mdc-sel:hover { background:rgba(0,212,255,.22); border-color:var(--cyan); box-shadow:0 0 10px rgba(0,212,255,.22); }
 .mdc-inst { background:rgba(0,229,160,.07); border:1px solid rgba(0,229,160,.30); color:var(--accent); }
 .mdc-inst:hover:not(:disabled) { background:rgba(0,229,160,.20); border-color:var(--accent); box-shadow:0 0 10px rgba(0,229,160,.22); }
-.mdc-pbar-wrap { margin-top:7px; }
+.mdc-pbar-wrap  { margin-top:7px; }
 .mdc-pbar-track { height:2px; background:rgba(0,212,255,.10); border-radius:1px; overflow:hidden; margin-bottom:4px; }
-.mdc-pbar-fill { height:100%; width:0%; background:linear-gradient(90deg,var(--cyan),var(--accent)); border-radius:1px; transition:width .4s ease; box-shadow:0 0 6px var(--cyan); }
-.mdc-ptext { font-size:9px; color:var(--text-3); letter-spacing:.05em; }
+.mdc-pbar-fill  { height:100%; width:0%; background:linear-gradient(90deg,var(--cyan),var(--accent)); border-radius:1px; transition:width .4s ease; box-shadow:0 0 6px var(--cyan); }
+.mdc-ptext      { font-size:9px; color:var(--text-3); letter-spacing:.05em; }
+/* RAM-Bar */
+.mdc-ram-bar   { display:flex; align-items:center; gap:8px; margin-bottom:10px; padding:6px 8px; border-radius:5px; background:rgba(0,212,255,.04); border:1px solid rgba(0,212,255,.10); }
+.mdc-ram-label { font-family:var(--font-hud); font-size:.45rem; color:var(--text-3); letter-spacing:.12em; flex-shrink:0; }
+.mdc-ram-track { flex:1; height:3px; background:rgba(255,255,255,.06); border-radius:2px; overflow:hidden; }
+.mdc-ram-fill  { height:100%; border-radius:2px; transition:width .3s; }
+.mdc-ram-val   { font-family:var(--font-data); font-size:9px; flex-shrink:0; white-space:nowrap; }
 
 /* ══════════════════════════════════════════════════════════════════════
    REACT OVERLAY — rendered by React CDN
